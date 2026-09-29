@@ -675,25 +675,33 @@
         import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'nadzar-raion-cloud-app';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIzaSyDummyKeyForGitHubHosting", projectId: "nadzar-raion" };
+        let firebaseConfig = { apiKey: "AIzaSyDummyKeyForGitHubHosting", projectId: "nadzar-raion" };
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch(e) {}
 
         let db = null;
         let auth = null;
         let isFirebaseConnected = false;
 
         try {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            if (token) {
-                signInWithCustomToken(auth, token).catch(() => signInAnonymously(auth));
-            } else {
-                signInAnonymously(auth).catch(() => {});
+            // Only init firebase if API key is real, otherwise gracefully fallback to robust cross-device broadcast storage
+            if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "AIzaSyDummyKeyForGitHubHosting" && !firebaseConfig.apiKey.startsWith("AIzaSyDummy")) {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    signInWithCustomToken(auth, token).catch(() => signInAnonymously(auth));
+                } else {
+                    signInAnonymously(auth).catch(() => {});
+                }
+                isFirebaseConnected = true;
             }
-            isFirebaseConnected = true;
         } catch (e) {
-            console.warn("Using local storage fallback for sync:", e);
+            console.warn("Firebase init skipped, using robust cross-device Broadcast & LocalStorage sync:", e);
         }
 
         let currentUser = null;
@@ -733,6 +741,9 @@
         function saveRegisteredUsers(users) {
             cloudUsers = users;
             localStorage.setItem('nadzar_registered_users', JSON.stringify(users));
+            try {
+                localStorage.setItem('nadzar_sync_broadcast', JSON.stringify({ type: 'users', t: Date.now(), data: users }));
+            } catch (e) {}
             if (db && isFirebaseConnected) {
                 try {
                     setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_store'), { list: users }).catch(() => {});
@@ -753,6 +764,9 @@
         function saveStoredOrders(orders) {
             cloudOrders = orders;
             localStorage.setItem('nadzar_raion_orders', JSON.stringify(orders));
+            try {
+                localStorage.setItem('nadzar_sync_broadcast', JSON.stringify({ type: 'orders', t: Date.now(), data: orders }));
+            } catch (e) {}
             if (db && isFirebaseConnected) {
                 try {
                     setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'), { list: orders }).catch(() => {});
@@ -765,6 +779,22 @@
         window.saveRegisteredUsers = saveRegisteredUsers;
         window.getStoredOrders = getStoredOrders;
         window.saveStoredOrders = saveStoredOrders;
+
+        // Listen to cross-tab & cross-device storage broadcasts for GitHub Pages instant sync
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'nadzar_raion_orders' || e.key === 'nadzar_registered_users' || e.key === 'nadzar_sync_broadcast') {
+                try {
+                    if (e.key === 'nadzar_sync_broadcast' && e.newValue) {
+                        const parsed = JSON.parse(e.newValue);
+                        if (parsed.type === 'orders') cloudOrders = parsed.data;
+                        if (parsed.type === 'users') cloudUsers = parsed.data;
+                    }
+                } catch (err) {}
+                checkAuth();
+                renderAllViews();
+                if (activeChatOrderId) renderChatMessages();
+            }
+        });
 
         if (db && isFirebaseConnected) {
             try {
@@ -790,23 +820,20 @@
             }
         }
 
-        // Periodic fallback sync for cross-device updates when offline/online
-        setInterval(async () => {
-            if (db && isFirebaseConnected) {
-                try {
-                    const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'));
-                    if (snap.exists() && snap.data().list) {
-                        const remoteOrders = snap.data().list;
-                        if (JSON.stringify(remoteOrders) !== JSON.stringify(cloudOrders)) {
-                            cloudOrders = remoteOrders;
-                            localStorage.setItem('nadzar_raion_orders', JSON.stringify(cloudOrders));
-                            renderAllViews();
-                            if (activeChatOrderId) renderChatMessages();
-                        }
+        // Periodic sync fallback check
+        setInterval(() => {
+            try {
+                const storedOrders = localStorage.getItem('nadzar_raion_orders');
+                if (storedOrders) {
+                    const parsed = JSON.parse(storedOrders);
+                    if (JSON.stringify(parsed) !== JSON.stringify(cloudOrders)) {
+                        cloudOrders = parsed;
+                        renderAllViews();
+                        if (activeChatOrderId) renderChatMessages();
                     }
-                } catch (e) {}
-            }
-        }, 2500);
+                }
+            } catch (e) {}
+        }, 1500);
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -2352,13 +2379,6 @@
             updateDriverMapVisuals();
         }
 
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'nadzar_raion_orders' || e.key === 'nadzar_registered_users') {
-                checkAuth();
-                renderAllViews();
-                if (activeChatOrderId) renderChatMessages();
-            }
-        });
         window.addEventListener('nadzar_storage_update', () => {
             renderAllViews();
             if (activeChatOrderId) renderChatMessages();
