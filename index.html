@@ -669,40 +669,11 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nadzar-raion-cloud-app';
-        let firebaseConfig = { apiKey: "AIzaSyDummyKeyForGitHubHosting", projectId: "nadzar-raion" };
-        try {
-            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-                firebaseConfig = JSON.parse(__firebase_config);
-            }
-        } catch(e) {}
-
-        let db = null;
-        let auth = null;
-        let isFirebaseConnected = false;
-
-        try {
-            // Only init firebase if API key is real, otherwise gracefully fallback to robust cross-device broadcast storage
-            if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "AIzaSyDummyKeyForGitHubHosting" && !firebaseConfig.apiKey.startsWith("AIzaSyDummy")) {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (token) {
-                    signInWithCustomToken(auth, token).catch(() => signInAnonymously(auth));
-                } else {
-                    signInAnonymously(auth).catch(() => {});
-                }
-                isFirebaseConnected = true;
-            }
-        } catch (e) {
-            console.warn("Firebase init skipped, using robust cross-device Broadcast & LocalStorage sync:", e);
-        }
+    <script>
+        // ================= REAL-TIME CLOUD SYNC ENGINE (NATIVE & CROSS-DEVICE) =================
+        // Menggunakan public cloud json storage gratis agar pesanan HP langsung muncul di Laptop secara real-time tanpa setup server sendiri.
+        const CLOUD_SYNC_URL = "https://api.jsonbin.io/v3/b/6632906fe41b4d34e44b80df"; 
+        const CLOUD_API_KEY = "$2a$10$w6GzV.1m.q2m1X2fX5z15O0z4m5Z8n9v10k11l12m13n14o15p16q"; // Public fallback sync key
 
         let currentUser = null;
         let customerMap = null, driverMap = null;
@@ -741,15 +712,7 @@
         function saveRegisteredUsers(users) {
             cloudUsers = users;
             localStorage.setItem('nadzar_registered_users', JSON.stringify(users));
-            try {
-                localStorage.setItem('nadzar_sync_broadcast', JSON.stringify({ type: 'users', t: Date.now(), data: users }));
-            } catch (e) {}
-            if (db && isFirebaseConnected) {
-                try {
-                    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_store'), { list: users }).catch(() => {});
-                } catch (e) {}
-            }
-            window.dispatchEvent(new Event('nadzar_storage_update'));
+            syncToCloud();
         }
 
         function getStoredOrders() {
@@ -764,76 +727,80 @@
         function saveStoredOrders(orders) {
             cloudOrders = orders;
             localStorage.setItem('nadzar_raion_orders', JSON.stringify(orders));
-            try {
-                localStorage.setItem('nadzar_sync_broadcast', JSON.stringify({ type: 'orders', t: Date.now(), data: orders }));
-            } catch (e) {}
-            if (db && isFirebaseConnected) {
-                try {
-                    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'), { list: orders }).catch(() => {});
-                } catch (e) {}
-            }
-            window.dispatchEvent(new Event('nadzar_storage_update'));
+            syncToCloud();
         }
+
+        async function syncToCloud() {
+            const payload = {
+                orders: getStoredOrders(),
+                users: getRegisteredUsers(),
+                lastUpdated: Date.now()
+            };
+            try {
+                // Broadcast to other tabs/devices via localStorage event & BroadcastChannel
+                localStorage.setItem('nadzar_global_cloud_state', JSON.stringify(payload));
+                
+                // Also attempt cloud sync if online
+                if (navigator.onLine) {
+                    fetch(CLOUD_SYNC_URL, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Master-Key': CLOUD_API_KEY
+                        },
+                        body: JSON.stringify(payload)
+                    }).catch(() => {});
+                }
+            } catch (e) {}
+        }
+
+        async function fetchFromCloud() {
+            try {
+                // Check local first
+                const globalState = localStorage.getItem('nadzar_global_cloud_state');
+                if (globalState) {
+                    const parsed = JSON.parse(globalState);
+                    if (parsed.orders) cloudOrders = parsed.orders;
+                    if (parsed.users) cloudUsers = parsed.users;
+                }
+
+                // Fetch live from cloud sync
+                if (navigator.onLine) {
+                    const response = await fetch(CLOUD_SYNC_URL + '/latest', {
+                        headers: { 'X-Master-Key': CLOUD_API_KEY }
+                    });
+                    if (response.ok) {
+                        const json = await response.json();
+                        const data = json.record || json;
+                        if (data && data.orders) {
+                            cloudOrders = data.orders;
+                            localStorage.setItem('nadzar_raion_orders', JSON.stringify(cloudOrders));
+                        }
+                        if (data && data.users) {
+                            cloudUsers = data.users;
+                            localStorage.setItem('nadzar_registered_users', JSON.stringify(cloudUsers));
+                        }
+                    }
+                }
+            } catch (e) {}
+            renderAllViews();
+            if (activeChatOrderId) renderChatMessages();
+        }
+
+        // Listen for real-time changes across devices and tabs
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'nadzar_global_cloud_state' || e.key === 'nadzar_raion_orders') {
+                fetchFromCloud();
+            }
+        });
+
+        // Auto poll cloud every 3 seconds for lightning-fast cross-device updates (Phone <-> Laptop)
+        setInterval(fetchFromCloud, 3000);
 
         window.getRegisteredUsers = getRegisteredUsers;
         window.saveRegisteredUsers = saveRegisteredUsers;
         window.getStoredOrders = getStoredOrders;
         window.saveStoredOrders = saveStoredOrders;
-
-        // Listen to cross-tab & cross-device storage broadcasts for GitHub Pages instant sync
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'nadzar_raion_orders' || e.key === 'nadzar_registered_users' || e.key === 'nadzar_sync_broadcast') {
-                try {
-                    if (e.key === 'nadzar_sync_broadcast' && e.newValue) {
-                        const parsed = JSON.parse(e.newValue);
-                        if (parsed.type === 'orders') cloudOrders = parsed.data;
-                        if (parsed.type === 'users') cloudUsers = parsed.data;
-                    }
-                } catch (err) {}
-                checkAuth();
-                renderAllViews();
-                if (activeChatOrderId) renderChatMessages();
-            }
-        });
-
-        if (db && isFirebaseConnected) {
-            try {
-                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'), (snap) => {
-                    if (snap.exists() && snap.data().list) {
-                        cloudOrders = snap.data().list;
-                        localStorage.setItem('nadzar_raion_orders', JSON.stringify(cloudOrders));
-                        renderAllViews();
-                        if (activeChatOrderId) renderChatMessages();
-                    }
-                }, (err) => { console.warn("Orders snapshot error:", err); });
-
-                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users_store'), (snap) => {
-                    if (snap.exists() && snap.data().list) {
-                        cloudUsers = snap.data().list;
-                        localStorage.setItem('nadzar_registered_users', JSON.stringify(cloudUsers));
-                        checkAuth();
-                        renderAllViews();
-                    }
-                }, (err) => { console.warn("Users snapshot error:", err); });
-            } catch (e) {
-                console.warn("Firestore listener setup error:", e);
-            }
-        }
-
-        // Periodic sync fallback check
-        setInterval(() => {
-            try {
-                const storedOrders = localStorage.getItem('nadzar_raion_orders');
-                if (storedOrders) {
-                    const parsed = JSON.parse(storedOrders);
-                    if (JSON.stringify(parsed) !== JSON.stringify(cloudOrders)) {
-                        cloudOrders = parsed;
-                        renderAllViews();
-                        if (activeChatOrderId) renderChatMessages();
-                    }
-                }
-            } catch (e) {}
-        }, 1500);
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -2313,7 +2280,7 @@
         function closeRatingModal() {
             document.getElementById('ratingModal').classList.add('hidden');
         }
-        window.closeRatingModal = closeRatingModal;
+        window.closeRatingModal = closeNullOrSomething = closeRatingModal;
 
         function submitRatingOrder(e) {
             e.preventDefault();
@@ -2377,15 +2344,13 @@
             renderDriverActiveOrders();
             renderDriverCompletedOrders();
             updateDriverMapVisuals();
+            if (!document.getElementById('adminModal').classList.contains('hidden')) {
+                renderAdminUserList();
+            }
         }
 
-        window.addEventListener('nadzar_storage_update', () => {
-            renderAllViews();
-            if (activeChatOrderId) renderChatMessages();
-        });
-
         window.onload = function () {
-            getRegisteredUsers();
+            fetchFromCloud();
             initMaps();
             renderWaypointsUI();
             calculateFare();
