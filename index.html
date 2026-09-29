@@ -1,0 +1,2374 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nadzar Raion - Delivery & Ride App</title>
+    <link rel="icon" type="image/jpeg" href="nadzarlogo.jpeg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        function logoFallback(img) {
+            if (!img) return;
+            const s = document.createElement('span');
+            s.className = 'text-white font-extrabold text-xs flex items-center justify-center w-full h-full bg-slate-900 rounded-lg';
+            s.textContent = 'NR';
+            if (img.parentNode) {
+                img.parentNode.replaceChild(s, img);
+            }
+        }
+    </script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d' },
+                        accent: { 500: '#0ea5e9', 600: '#0284c7' },
+                        darkbg: '#0f172a',
+                        darkcard: '#1e293b'
+                    },
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; touch-action: manipulation; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.05); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.2); border-radius: 10px; }
+        #map, #customerMap { width: 100%; height: 100%; border-radius: 1rem; z-index: 1; }
+        .leaflet-container { font-family: inherit; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 dark:bg-slate-900 dark:text-gray-100 min-h-screen flex flex-col justify-between selection:bg-brand-500 selection:text-white">
+
+    <div id="toastContainer" class="fixed top-4 right-4 z-[10000] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <div id="cancelModal" class="fixed inset-0 z-[10000] bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <form onsubmit="submitCancelOrder(event)" class="bg-white dark:bg-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-3 shadow-2xl border border-gray-100 dark:border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 dark:bg-rose-900/50 dark:text-rose-300 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-ban"></i>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100">Batalkan Pesanan</h4>
+                    <span id="cancelOrderRef" class="text-[11px] text-gray-400">Order #</span>
+                </div>
+            </div>
+            <p id="cancelInfoText" class="text-[11px] text-gray-500 dark:text-gray-400"></p>
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">Pilih alasan pembatalan</label>
+                <div id="cancelReasonOptions" class="space-y-1.5"></div>
+            </div>
+            <textarea id="cancelReasonManual" rows="3" placeholder="Tulis alasan pembatalan Anda (min. 5 karakter)..." class="hidden w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-rose-500"></textarea>
+            <div class="flex gap-2 pt-1">
+                <button type="button" onclick="closeCancelModal()" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition">Kembali</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 text-white shadow hover:bg-rose-700 transition">Ya, Batalkan</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="confirmModal" class="fixed inset-0 z-[10000] bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-xs w-full p-5 space-y-4 shadow-2xl border border-gray-100 dark:border-slate-700 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400 mx-auto flex items-center justify-center text-xl font-bold">
+                <i class="fa-solid fa-circle-question"></i>
+            </div>
+            <p id="confirmModalText" class="text-xs font-semibold text-gray-700 dark:text-gray-200">Konfirmasi tindakan Anda</p>
+            <div class="flex gap-2">
+                <button onclick="handleConfirmResponse(false)" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition">Batal</button>
+                <button onclick="handleConfirmResponse(true)" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 text-white shadow hover:bg-rose-700 transition">Ya, Lanjutkan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rating Modal (Driver & Customer) -->
+    <div id="ratingModal" class="fixed inset-0 z-[10002] bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <form onsubmit="submitRatingOrder(event)" class="bg-white dark:bg-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl border border-gray-100 dark:border-slate-700 text-center">
+            <input type="hidden" id="ratingOrderId">
+            <input type="hidden" id="ratingTargetRole" value="driver">
+            <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-500 dark:bg-amber-900/50 dark:text-amber-400 mx-auto flex items-center justify-center text-2xl font-bold shadow-sm">
+                <i class="fa-solid fa-star"></i>
+            </div>
+            <div>
+                <h4 id="ratingModalTitle" class="font-extrabold text-base text-gray-800 dark:text-gray-100">Beri Rating & Ulasan</h4>
+                <p id="ratingModalSubtext" class="text-xs text-gray-400 mt-0.5">Bagikan pengalaman Anda</p>
+            </div>
+
+            <!-- Interactive Star Rating -->
+            <div class="flex justify-center gap-2 text-2xl" id="starRatingContainer">
+                <button type="button" onclick="setRatingValue(1)" class="star-btn text-amber-400 transition hover:scale-110" data-star="1"><i class="fa-solid fa-star"></i></button>
+                <button type="button" onclick="setRatingValue(2)" class="star-btn text-amber-400 transition hover:scale-110" data-star="2"><i class="fa-solid fa-star"></i></button>
+                <button type="button" onclick="setRatingValue(3)" class="star-btn text-amber-400 transition hover:scale-110" data-star="3"><i class="fa-solid fa-star"></i></button>
+                <button type="button" onclick="setRatingValue(4)" class="star-btn text-amber-400 transition hover:scale-110" data-star="4"><i class="fa-solid fa-star"></i></button>
+                <button type="button" onclick="setRatingValue(5)" class="star-btn text-amber-400 transition hover:scale-110" data-star="5"><i class="fa-solid fa-star"></i></button>
+            </div>
+            <input type="hidden" id="selectedStarValue" value="5">
+
+            <textarea id="ratingReviewText" rows="3" placeholder="Tuliskan ulasan (opsional)..." class="w-full text-xs p-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+
+            <div class="flex gap-2">
+                <button type="button" onclick="closeRatingModal()" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition">Nanti Saja</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-white shadow hover:bg-amber-600 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-paper-plane"></i> Kirim Ulasan
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="fixed inset-0 z-[10001] bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-gray-100 dark:border-slate-700">
+            <div class="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-700">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center text-base shadow">
+                        <i class="fa-solid fa-user-pen"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100">Ubah Data Pengguna</h4>
+                        <span id="editUserRef" class="text-[11px] text-gray-400">ID: -</span>
+                    </div>
+                </div>
+                <button type="button" onclick="closeEditUserModal()" class="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 hover:text-gray-800 dark:hover:text-white flex items-center justify-center text-xs">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form onsubmit="saveEditUser(event)" class="space-y-3">
+                <input type="hidden" id="editUserId">
+                
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Tipe Pengguna</label>
+                    <select id="editAccType" onchange="toggleEditDriverFields()" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                        <option value="customer">Pelanggan</option>
+                        <option value="driver">Driver Resmi</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Nama Lengkap</label>
+                    <input type="text" id="editAccName" required class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">No. HP / WA</label>
+                        <input type="text" id="editAccPhone" required class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Email</label>
+                        <input type="email" id="editAccEmail" required class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Kata Sandi Login</label>
+                    <input type="text" id="editAccPassword" required class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                </div>
+
+                <div id="editDriverFieldsGroup" class="space-y-3 hidden">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Jenis Kendaraan</label>
+                            <select id="editAccVehicle" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                                <option value="Motor">Motor</option>
+                                <option value="Mobil">Mobil</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Plat Nomor</label>
+                            <input type="text" id="editAccPlate" placeholder="D 1234 ABC" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="closeEditUserModal()" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition">Batal</button>
+                    <button type="submit" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-white shadow hover:bg-amber-600 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section id="authView" class="fixed inset-0 z-[9999] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white dark:bg-slate-800 max-w-md w-full rounded-3xl p-6 shadow-2xl border border-gray-100 dark:border-slate-700 space-y-5 my-auto">
+            <div class="text-center space-y-2">
+                <div class="w-20 h-20 rounded-2xl bg-black border-2 border-slate-700 mx-auto flex items-center justify-center text-white shadow-xl shadow-black/50 overflow-hidden p-1">
+                    <img src="nadzarlogo.jpeg" alt="Nadzar Raion Logo" class="w-full h-full object-cover rounded-xl" onerror="logoFallback(this)">
+                </div>
+                <div>
+                    <h2 class="font-extrabold text-2xl text-slate-900 dark:text-white tracking-tight">Nadzar Raion</h2>
+                    <p class="text-xs text-gray-400">Portal Layanan Delivery, Food & Ride Sharing</p>
+                </div>
+            </div>
+
+            <div class="flex bg-gray-100 dark:bg-slate-700/60 p-1 rounded-xl text-xs font-bold gap-1">
+                <button id="tabAuthCustLogin" type="button" onclick="switchAuthTab('cust-login')" class="flex-1 py-2 rounded-lg bg-brand-600 text-white shadow transition flex items-center justify-center gap-1">
+                    <i class="fa-solid fa-user"></i> Pelanggan
+                </button>
+                <button id="tabAuthDrvLogin" type="button" onclick="switchAuthTab('drv-login')" class="flex-1 py-2 rounded-lg text-gray-500 dark:text-gray-300 hover:text-gray-900 transition flex items-center justify-center gap-1">
+                    <i class="fa-solid fa-motorcycle text-amber-500"></i> Driver
+                </button>
+                <button id="tabAuthAdminLogin" type="button" onclick="switchAuthTab('admin-login')" class="flex-1 py-2 rounded-lg text-gray-500 dark:text-gray-300 hover:text-gray-900 transition flex items-center justify-center gap-1">
+                    <i class="fa-solid fa-user-gear text-blue-500"></i> Admin
+                </button>
+            </div>
+
+            <form id="formCustLogin" onsubmit="handleCustomerLogin(event)" class="space-y-3">
+                <div class="bg-emerald-50 dark:bg-emerald-950/30 p-3 rounded-2xl border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info text-base"></i>
+                    <span>Masuk sebagai <b>Pelanggan</b> untuk memesan ojek, makanan, atau kurir barang.</span>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Email / No. HP Pelanggan</label>
+                    <input type="text" id="custLoginId" required placeholder="user@nadzar.com atau 081234567890" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-brand-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Kata Sandi</label>
+                    <input type="password" id="custLoginPassword" required placeholder="••••••••" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-brand-500 outline-none">
+                </div>
+                <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-600/30 active:scale-95 transition">
+                    <i class="fa-solid fa-right-to-bracket mr-1"></i> Masuk Akun Pelanggan
+                </button>
+                <div class="text-center pt-2">
+                    <button type="button" onclick="switchAuthTab('cust-reg')" class="text-xs text-brand-600 dark:text-brand-400 font-bold hover:underline">
+                        Belum punya akun pelanggan? Hubungi WA Admin
+                    </button>
+                </div>
+            </form>
+
+            <form id="formDrvLogin" onsubmit="handleDriverLogin(event)" class="space-y-3 hidden">
+                <div class="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-2xl border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-base text-amber-500"></i>
+                    <span>Portal Khusus <b>Driver Resmi</b> Nadzar Raion. Hanya driver terverifikasi yang dapat masuk.</span>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Email / No. HP Driver</label>
+                    <input type="text" id="drvLoginId" required placeholder="driver@nadzar.com atau 089876543210" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Kata Sandi</label>
+                    <input type="password" id="drvLoginPassword" required placeholder="••••••••" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none">
+                </div>
+                <button type="submit" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-amber-500/30 active:scale-95 transition">
+                    <i class="fa-solid fa-motorcycle mr-1"></i> Masuk Portal Driver
+                </button>
+                <div class="text-center pt-2">
+                    <button type="button" onclick="switchAuthTab('drv-reg')" class="text-xs text-amber-600 dark:text-amber-400 font-bold hover:underline">
+                        Ingin daftar jadi Driver? Kirim Syarat ke WA Admin
+                    </button>
+                </div>
+            </form>
+
+            <form id="formAdminLogin" onsubmit="handleAdminLogin(event)" class="space-y-3 hidden">
+                <div class="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-2xl border border-blue-200 dark:border-blue-800 text-[11px] text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                    <i class="fa-solid fa-user-shield text-base text-blue-500"></i>
+                    <span>Masuk sebagai <b>Admin System</b> untuk mengawasi orderan, pengawasan etika driver & kelola user.</span>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Email Admin</label>
+                    <input type="text" id="adminLoginId" required placeholder="admin@nadzar.com" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Kata Sandi Admin</label>
+                    <input type="password" id="adminLoginPassword" required placeholder="••••••••" class="w-full text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/30 active:scale-95 transition">
+                    <i class="fa-solid fa-key mr-1"></i> Masuk Panel Admin
+                </button>
+            </form>
+
+            <div id="formCustReg" class="space-y-4 hidden text-center">
+                <div class="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 rounded-2xl space-y-2 text-xs text-emerald-800 dark:text-emerald-300">
+                    <i class="fa-solid fa-user-plus text-3xl text-emerald-600 dark:text-emerald-400 mb-1"></i>
+                    <h3 class="font-bold text-sm">Pendaftaran Akun Pelanggan</h3>
+                    <p class="text-gray-600 dark:text-gray-300">
+                        Untuk pembuatan akun baru, silakan hubungi <b>WhatsApp Admin (085797369223)</b>. Data login akan dibuatkan oleh Admin.
+                    </p>
+                </div>
+                <a href="https://wa.me/6285797369223?text=Halo%20Admin%20Nadzar%20Raion,%20saya%20ingin%20mendaftar%20sebagai%20Pelanggan%20baru.%20Mohon%20bantuannya." target="_blank" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition">
+                    <i class="fa-brands fa-whatsapp text-lg"></i> Chat Admin WA Pelanggan (085797369223)
+                </a>
+                <button type="button" onclick="switchAuthTab('cust-login')" class="text-xs text-gray-500 hover:underline">&larr; Kembali ke Login Pelanggan</button>
+            </div>
+
+            <div id="formDrvReg" class="space-y-4 hidden text-center">
+                <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-4 rounded-2xl space-y-2 text-xs text-amber-800 dark:text-amber-300">
+                    <i class="fa-solid fa-id-card text-3xl text-amber-500 mb-1"></i>
+                    <h3 class="font-bold text-sm">Pendaftaran Akun Driver Resmi</h3>
+                    <p class="text-gray-600 dark:text-gray-300">
+                        Untuk menjadi Driver resmi Nadzar Raion, kirimkan foto KTP, SIM, STNK & Foto Kendaraan ke <b>WhatsApp Admin (085797369223)</b>.
+                    </p>
+                </div>
+                <a href="https://wa.me/6285797369223?text=Halo%20Admin%20Nadzar%20Raion,%20saya%20ingin%20mendaftar%20sebagai%20Driver%20Resmi.%20Mohon%20informasi%20syarat%20dan%20akun%20login." target="_blank" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2 transition">
+                    <i class="fa-brands fa-whatsapp text-lg"></i> Chat Admin WA Driver (085797369223)
+                </a>
+                <button type="button" onclick="switchAuthTab('drv-login')" class="text-xs text-gray-500 hover:underline">&larr; Kembali ke Login Driver</button>
+            </div>
+        </div>
+    </section>
+
+    <header class="sticky top-0 z-40 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-gray-200 dark:border-slate-700 shadow-sm">
+        <div class="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <div class="w-10 h-10 rounded-xl bg-black border border-slate-700 flex items-center justify-center text-white shadow-md shadow-black/40 overflow-hidden p-0.5">
+                    <img src="nadzarlogo.jpeg" alt="Nadzar Raion Logo" class="w-full h-full object-cover rounded-lg" onerror="logoFallback(this)">
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-lg tracking-tight leading-none text-black dark:text-white">Nadzar <span class="text-black dark:text-white">Raion</span></h1>
+                    <span id="userAccountStatusBadge" class="text-[10px] font-semibold text-emerald-500 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-check"></i> <span id="currentUserName">Loading...</span>
+                    </span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="btnOpenAdminPortal" onclick="openAdminModal()" class="hidden px-3 py-1 rounded-full text-[11px] font-extrabold bg-blue-600 text-white shadow-md hover:bg-blue-700 transition items-center gap-1">
+                    <i class="fa-solid fa-user-shield"></i> Panel Admin
+                </button>
+                <span id="roleIndicatorBadge" class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 flex items-center gap-1">
+                    <i class="fa-solid fa-user"></i> Pelanggan
+                </span>
+                <button onclick="logout()" class="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-300 flex items-center justify-center transition" title="Keluar Akun">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-md mx-auto pb-10 flex-1 w-full">
+        <!-- ================= CUSTOMER PORTAL ================= -->
+        <section id="customerView" class="p-4 space-y-4">
+            <div class="bg-gradient-to-r from-brand-600 to-brand-700 text-white p-4 rounded-2xl shadow-lg space-y-1">
+                <h2 class="font-bold text-base mb-1">Skema Tarif Multi-Titik Transparan</h2>
+                <div class="text-xs space-y-0.5 text-brand-100">
+                    <p><i class="fa-solid fa-check-circle mr-1"></i> <strong>0 - 4 km:</strong> Flat Rp 8.000</p>
+                    <p><i class="fa-solid fa-check-circle mr-1"></i> <strong>> 4 km:</strong> Rp 8.000 + Rp 2.000 / km berikutnya</p>
+                    <p><i class="fa-solid fa-plus-circle mr-1 text-amber-300"></i> <strong>Titik Tambahan (> 2 Titik):</strong> +Rp 1.000 / km ekstra</p>
+                </div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-slate-700/80 space-y-4">
+                <h3 class="font-bold text-sm tracking-wide text-gray-700 dark:text-gray-200 uppercase flex items-center gap-2">
+                    <i class="fa-solid fa-cart-plus text-brand-600"></i> Buat Pesanan Baru
+                </h3>
+
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" onclick="selectService('ride')" id="svc-ride" class="service-btn flex flex-col items-center justify-center p-3 rounded-xl border-2 border-brand-500 bg-brand-50/50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 transition-all">
+                        <i class="fa-solid fa-motorcycle text-2xl mb-1"></i>
+                        <span class="text-xs font-bold">Penumpang</span>
+                    </button>
+                    <button type="button" onclick="selectService('food')" id="svc-food" class="service-btn flex flex-col items-center justify-center p-3 rounded-xl border-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-400 transition-all">
+                        <i class="fa-solid fa-utensils text-2xl mb-1"></i>
+                        <span class="text-xs font-bold">Makanan</span>
+                    </button>
+                    <button type="button" onclick="selectService('delivery')" id="svc-delivery" class="service-btn flex flex-col items-center justify-center p-3 rounded-xl border-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-400 transition-all">
+                        <i class="fa-solid fa-box text-2xl mb-1"></i>
+                        <span class="text-xs font-bold">Kirim Barang</span>
+                    </button>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                            <i class="fa-solid fa-map-location-dot text-brand-600 mr-1"></i> Interactive Map Picker
+                        </label>
+                        <button type="button" onclick="getCurrentLocationForPoint(0)" class="text-[11px] bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-full font-bold shadow flex items-center gap-1 active:scale-95 transition">
+                            <i class="fa-solid fa-crosshairs"></i> <span>GPS Lokasi Saya</span>
+                        </button>
+                    </div>
+                    <div id="quickPointSelectorBar" class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs"></div>
+                    <div class="h-64 w-full relative overflow-hidden rounded-2xl border border-gray-200 dark:border-slate-700 shadow-inner">
+                        <div class="absolute top-2 left-2 right-2 z-10 bg-slate-900/85 backdrop-blur-md text-white px-3 py-1.5 rounded-xl text-[11px] flex items-center justify-between shadow-lg border border-slate-700/60">
+                            <span class="font-medium truncate">
+                                <i class="fa-solid fa-crosshairs text-amber-400 mr-1"></i> Klik Maps untuk set <b class="text-emerald-400" id="activePointLabel">Titik 1 (Jemput)</b>
+                            </span>
+                            <button type="button" onclick="addWaypoint()" class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-2 py-0.5 rounded-lg text-[10px] whitespace-nowrap ml-2 shadow">
+                                <i class="fa-solid fa-plus mr-1"></i> Tambah Titik
+                            </button>
+                        </div>
+                        <div id="customerMap" class="w-full h-full"></div>
+                    </div>
+                </div>
+
+                <div class="space-y-3 pt-1">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400">Rincian Titik Rute & Tujuan</label>
+                        <button type="button" onclick="addWaypoint()" class="text-xs bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300 px-2.5 py-1 rounded-lg font-bold hover:bg-brand-200 transition flex items-center gap-1">
+                            <i class="fa-solid fa-plus-circle"></i> Tambah Titik (+Rp 1.000/km)
+                        </button>
+                    </div>
+
+                    <div id="waypointsContainer" class="space-y-2"></div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                            <i class="fa-solid fa-note-sticky text-amber-500 mr-1"></i> Catatan Pesanan
+                        </label>
+                        <textarea id="orderNotes" rows="2" placeholder="Contoh: Titik 1 jemput di depan minimarket, Titik 2 bayar paket..." class="w-full text-sm p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                            <i class="fa-solid fa-wallet text-blue-500 mr-1"></i> Metode Pembayaran
+                        </label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-800 transition">
+                                <input type="radio" name="paymentMethod" value="COD" checked class="accent-brand-600 text-brand-600">
+                                <span class="ml-2 text-xs font-medium"><i class="fa-solid fa-money-bill-wave text-green-500 mr-1"></i> COD (Tunai)</span>
+                            </label>
+                            <label class="flex items-center p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-800 transition">
+                                <input type="radio" name="paymentMethod" value="Transfer Bank / E-Wallet" class="accent-brand-600 text-brand-600">
+                                <span class="ml-2 text-xs font-medium"><i class="fa-solid fa-qrcode text-purple-500 mr-1"></i> Transfer/QRIS</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-gray-200/60 dark:border-slate-700 space-y-1">
+                    <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                        <span>Jumlah Titik Lokasi:</span>
+                        <span id="pointsCountDisplay" class="font-bold text-gray-800 dark:text-gray-200">2 Titik (Standar)</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                        <span>Biaya Titik Ekstra:</span>
+                        <span id="extraStopsFeeDisplay" class="font-bold text-amber-600 dark:text-amber-400">Rp 0</span>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-gray-200 dark:border-slate-700 pt-2 mt-1">
+                        <div>
+                            <span class="text-[11px] text-gray-500 dark:text-gray-400">Total Jarak Estimasi</span>
+                            <div class="font-bold text-sm text-gray-800 dark:text-gray-200" id="distanceDisplay">0 Km</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[11px] text-gray-500 dark:text-gray-400">Total Argo</span>
+                            <div class="font-extrabold text-xl text-brand-600 dark:text-brand-400" id="fareDisplay">Rp 8.000</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="createOrder()" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-600/30 active:scale-95 transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-paper-plane"></i> Kirim Pesanan Ke Driver
+                </button>
+            </div>
+
+            <div class="space-y-2 pt-2">
+                <h3 class="font-bold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase">Pesanan Aktif Saya</h3>
+                <div id="customerOrdersList" class="space-y-3"></div>
+            </div>
+
+            <div class="space-y-2 pt-2">
+                <h3 class="font-bold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1.5">
+                    <i class="fa-solid fa-clock-rotate-left text-emerald-500"></i> Riwayat Pesanan (Selesai & Dibatalkan)
+                </h3>
+                <div id="customerCompletedOrdersList" class="space-y-3"></div>
+            </div>
+        </section>
+
+        <!-- ================= DRIVER PORTAL ================= -->
+        <section id="driverView" class="p-4 space-y-4 hidden">
+            <div class="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm space-y-2">
+                <div class="flex items-center justify-between px-2">
+                    <span class="font-bold text-xs text-gray-700 dark:text-gray-300 uppercase flex items-center gap-2">
+                        <i class="fa-solid fa-map-location-dot text-amber-500"></i> Peta Orderan Real-time
+                    </span>
+                    <span class="text-[11px] bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 px-2 py-0.5 rounded-full font-semibold" id="driverOrderCount">0 Pesanan Tersedia</span>
+                </div>
+                <div class="h-64 w-full relative overflow-hidden rounded-xl">
+                    <div id="map"></div>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-sm tracking-wide text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                        <i class="fa-solid fa-bolt text-amber-500"></i> Feed Pesanan Masuk (Cocol)
+                    </h3>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Klik "Cocol" untuk ambil</span>
+                </div>
+                <div id="driverFeedList" class="space-y-3"></div>
+            </div>
+
+            <div class="space-y-3 pt-2">
+                <h3 class="font-bold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase">Pesanan Diterima (Diproses)</h3>
+                <div id="driverActiveList" class="space-y-3"></div>
+            </div>
+
+            <div class="space-y-3 pt-2">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1.5">
+                        <i class="fa-solid fa-clock-rotate-left text-emerald-500"></i> Riwayat Orderan
+                    </h3>
+                    <span id="driverTotalEarningsBadge" class="text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2.5 py-0.5 rounded-full font-bold">Total: Rp 0</span>
+                </div>
+                <div id="driverCompletedList" class="space-y-3"></div>
+            </div>
+        </section>
+
+        <!-- ================= ADMIN MODAL ================= -->
+        <section id="adminModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 hidden flex flex-col justify-end sm:justify-center p-0 sm:p-4">
+            <div class="bg-white dark:bg-slate-800 w-full max-w-xl mx-auto h-[92vh] sm:h-[750px] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-slate-700">
+                <div class="p-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-700">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow">
+                            <i class="fa-solid fa-user-shield text-lg"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm">Panel Admin Nadzar Raion</h4>
+                            <span class="text-[11px] text-gray-400">Monitoring Orderan, Pengawasan Driver & User</span>
+                        </div>
+                    </div>
+                    <button onclick="closeAdminModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-gray-300">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="flex bg-slate-100 dark:bg-slate-900 p-2 gap-1.5 border-b border-gray-200 dark:border-slate-700 text-xs font-bold">
+                    <button id="adminTabOrders" onclick="switchAdminSubTab('orders')" class="flex-1 py-2 rounded-xl bg-blue-600 text-white shadow transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-eye text-amber-300"></i> Monitoring Order (<span id="countAdminOrders">0</span>)
+                    </button>
+                    <button id="adminTabDrivers" onclick="switchAdminSubTab('drivers')" class="flex-1 py-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-motorcycle"></i> Driver (<span id="countAdminDrivers">0</span>)
+                    </button>
+                    <button id="adminTabCustomers" onclick="switchAdminSubTab('customers')" class="flex-1 py-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-users"></i> Pelanggan (<span id="countAdminCustomers">0</span>)
+                    </button>
+                </div>
+
+                <div class="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50 dark:bg-slate-900/50">
+                    <div class="flex justify-between items-center bg-white dark:bg-slate-800 p-3 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <div>
+                            <h5 class="font-bold text-xs text-gray-800 dark:text-gray-200" id="adminSectionTitle">Monitoring Orderan & Pengawasan Driver</h5>
+                            <p class="text-[11px] text-gray-400" id="adminSectionDesc">Pengawasan etika driver, pelanggan, & obrolan real-time</p>
+                        </div>
+                        <button id="btnAdminAddUser" onclick="openAddUserForm()" class="hidden bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs py-2 px-3 rounded-xl shadow transition items-center gap-1.5">
+                            <i class="fa-solid fa-plus-circle"></i> Tambah User
+                        </button>
+                    </div>
+
+                    <div id="adminOrderFilterBar" class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                        <button onclick="setAdminOrderFilter('all')" id="flt-all" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-white shadow whitespace-nowrap">Semua Order</button>
+                        <button onclick="setAdminOrderFilter('taken')" id="flt-taken" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 whitespace-nowrap">🛵 Diproses Driver</button>
+                        <button onclick="setAdminOrderFilter('pending')" id="flt-pending" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 whitespace-nowrap">⏳ Mencari Driver</button>
+                        <button onclick="setAdminOrderFilter('completed')" id="flt-completed" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 whitespace-nowrap">✅ Selesai</button>
+                        <button onclick="setAdminOrderFilter('cancelled')" id="flt-cancelled" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 whitespace-nowrap">🚫 Dibatalkan</button>
+                    </div>
+
+                    <div id="addUserFormContainer" class="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-brand-500 shadow-md space-y-3 hidden">
+                        <h5 class="font-bold text-xs text-brand-600 dark:text-brand-400 uppercase tracking-wide flex items-center justify-between">
+                            <span><i class="fa-solid fa-user-plus mr-1"></i> Form Input User Baru</span>
+                            <button type="button" onclick="closeAddUserForm()" class="text-gray-400 hover:text-gray-600 text-xs">Batal</button>
+                        </h5>
+                        <form onsubmit="saveNewUser(event)" class="space-y-2.5">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">Tipe Pengguna</label>
+                                <select id="newAccType" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                                    <option value="driver">Driver Resmi</option>
+                                    <option value="customer">Pelanggan</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">Nama Lengkap</label>
+                                <input type="text" id="newAccName" required placeholder="Contoh: Ahmad Rizky" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">No. HP / WA</label>
+                                    <input type="text" id="newAccPhone" required placeholder="0812345678" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">Email</label>
+                                    <input type="email" id="newAccEmail" required placeholder="nama@nadzar.com" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">Kata Sandi Login</label>
+                                    <input type="password" id="newAccPassword" required placeholder="••••••••" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                                </div>
+                                <div id="plateInputGroup">
+                                    <label class="block text-[11px] font-bold text-gray-600 dark:text-gray-300">Plat Nomor (Driver)</label>
+                                    <input type="text" id="newAccPlate" placeholder="D 1234 ABC" class="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-xl text-xs shadow transition">Simpan & Buat Akun Baru</button>
+                        </form>
+                    </div>
+
+                    <div id="adminUserList" class="space-y-3"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= CHAT MODAL ================= -->
+        <section id="chatModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 hidden flex flex-col justify-end sm:justify-center p-0 sm:p-4">
+            <div class="bg-white dark:bg-slate-800 w-full max-w-md mx-auto h-[90vh] sm:h-[650px] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-slate-700">
+                <div class="p-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-700">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-brand-600 flex items-center justify-center font-bold text-white shadow">
+                            <i id="chatPartnerIcon" class="fa-solid fa-user"></i>
+                        </div>
+                        <div>
+                            <h4 id="chatPartnerName" class="font-bold text-sm">Mitra Nadzar</h4>
+                            <span id="chatOrderRef" class="text-[11px] text-gray-400">Order #ORD-101</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <a id="btnDirectWA" href="#" target="_blank" class="w-8 h-8 rounded-full bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center text-white" title="Hubungi via WhatsApp">
+                            <i class="fa-brands fa-whatsapp text-base"></i>
+                        </a>
+                        <button onclick="closeChat()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-gray-300">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="chatOrderDetailsBar" class="bg-slate-100 dark:bg-slate-900 p-3 text-xs border-b border-gray-200 dark:border-slate-700 space-y-2">
+                    <div class="flex justify-between font-bold items-center">
+                        <span id="chatFare" class="text-brand-600 dark:text-brand-400">Rp 8.000</span>
+                        <span id="chatPayType" class="text-gray-500">COD</span>
+                    </div>
+                    <p id="chatNotes" class="text-gray-600 dark:text-gray-400 italic text-[11px] truncate">Catatan: -</p>
+                    <div id="chatNavBtnContainer" class="hidden pt-1"></div>
+                </div>
+
+                <div id="chatMessagesContainer" class="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 dark:bg-slate-900/50"></div>
+
+                <div class="p-2 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 flex gap-2 overflow-x-auto no-scrollbar">
+                    <button onclick="sendQuickMessage('Saya sudah sesuai titik ya')" class="whitespace-nowrap px-3 py-1 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 text-[11px] text-gray-700 dark:text-gray-300">📍 Sesuai titik</button>
+                    <button onclick="sendQuickMessage('Mohon tunggu sebentar')" class="whitespace-nowrap px-3 py-1 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 text-[11px] text-gray-700 dark:text-gray-300">⏳ Tunggu sebentar</button>
+                    <button onclick="sendQuickMessage('Saya jalan sekarang')" class="whitespace-nowrap px-3 py-1 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 text-[11px] text-gray-700 dark:text-gray-300">🛵 OTW lokasi</button>
+                </div>
+
+                <div class="p-3 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 space-y-2">
+                    <form onsubmit="sendMessage(event)" class="flex gap-2">
+                        <input id="chatInput" type="text" placeholder="Tulis pesan untuk koordinasi..." class="flex-1 text-sm p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50">
+                        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-4 rounded-xl shadow transition">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </form>
+
+                    <button id="btnCompleteOrder" onclick="completeCurrentOrder()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-circle-check"></i> Selesaikan Pesanan Ini
+                    </button>
+                    <button id="btnCancelOrder" onclick="openCancelModal(activeChatOrderId)" class="hidden w-full bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-ban"></i> Batalkan Pesanan Ini
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nadzar-raion-app-v2';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIzaSyDummyKeyForGitHubHosting", projectId: "nadzar-raion" };
+
+        let db = null;
+        let auth = null;
+        let isFirebaseConnected = false;
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            if (token) {
+                signInWithCustomToken(auth, token).catch(() => signInAnonymously(auth));
+            } else {
+                signInAnonymously(auth).catch(() => {});
+            }
+            isFirebaseConnected = true;
+        } catch (e) {
+            console.warn("Using local storage fallback for sync:", e);
+        }
+
+        let currentUser = null;
+        let customerMap = null, driverMap = null;
+        let customerMapMarkers = [];
+        let customerPolyline = null;
+        let activePickingWaypointIndex = 0;
+        let selectedServiceType = 'ride';
+        let activeAdminSubTab = 'orders';
+        let activeAdminOrderFilter = 'all';
+        let activeChatOrderId = null;
+        let confirmCallback = null;
+
+        let customerWaypoints = [
+            { name: "", lat: null, lng: null },
+            { name: "", lat: null, lng: null }
+        ];
+
+        let cloudOrders = [];
+        let cloudUsers = [];
+
+        const DEFAULT_USERS = [
+            { id: 'USR-101', name: 'Zaskia Agustina', phone: '081234567890', email: 'zaskia@nadzar.com', password: '123', accountType: 'customer', reviews: [] },
+            { id: 'DRV-201', name: 'Ahmad Supriadi', phone: '089876543210', email: 'ahmad@nadzar.com', password: '123', accountType: 'driver', vehicleType: 'Motor', plateNumber: 'D 4589 KAZ', reviews: [] },
+            { id: 'ADM-001', name: 'Admin Nadzar', phone: '085797369223', email: 'admin@nadzar.com', password: 'admin', accountType: 'admin', reviews: [] }
+        ];
+
+        function getRegisteredUsers() {
+            if (cloudUsers.length > 0) return cloudUsers;
+            try {
+                const stored = localStorage.getItem('nadzar_registered_users');
+                if (stored) return JSON.parse(stored);
+            } catch (e) {}
+            return DEFAULT_USERS;
+        }
+
+        function saveRegisteredUsers(users) {
+            cloudUsers = users;
+            localStorage.setItem('nadzar_registered_users', JSON.stringify(users));
+            if (db && isFirebaseConnected) {
+                try {
+                    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_store'), { list: users }).catch(() => {});
+                } catch (e) {}
+            }
+            window.dispatchEvent(new Event('nadzar_storage_update'));
+        }
+
+        function getStoredOrders() {
+            if (cloudOrders.length > 0) return cloudOrders;
+            try {
+                const stored = localStorage.getItem('nadzar_raion_orders');
+                if (stored) return JSON.parse(stored);
+            } catch (e) {}
+            return [];
+        }
+
+        function saveStoredOrders(orders) {
+            cloudOrders = orders;
+            localStorage.setItem('nadzar_raion_orders', JSON.stringify(orders));
+            if (db && isFirebaseConnected) {
+                try {
+                    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'), { list: orders }).catch(() => {});
+                } catch (e) {}
+            }
+            window.dispatchEvent(new Event('nadzar_storage_update'));
+        }
+
+        window.getRegisteredUsers = getRegisteredUsers;
+        window.saveRegisteredUsers = saveRegisteredUsers;
+        window.getStoredOrders = getStoredOrders;
+        window.saveStoredOrders = saveStoredOrders;
+
+        if (db && isFirebaseConnected) {
+            try {
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'), (snap) => {
+                    if (snap.exists() && snap.data().list) {
+                        cloudOrders = snap.data().list;
+                        localStorage.setItem('nadzar_raion_orders', JSON.stringify(cloudOrders));
+                        renderAllViews();
+                        if (activeChatOrderId) renderChatMessages();
+                    }
+                }, (err) => { console.warn("Orders snapshot error:", err); });
+
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users_store'), (snap) => {
+                    if (snap.exists() && snap.data().list) {
+                        cloudUsers = snap.data().list;
+                        localStorage.setItem('nadzar_registered_users', JSON.stringify(cloudUsers));
+                        checkAuth();
+                        renderAllViews();
+                    }
+                }, (err) => { console.warn("Users snapshot error:", err); });
+            } catch (e) {
+                console.warn("Firestore listener setup error:", e);
+            }
+        }
+
+        setInterval(async () => {
+            if (db && isFirebaseConnected) {
+                try {
+                    const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders_store'));
+                    if (snap.exists() && snap.data().list) {
+                        const remoteOrders = snap.data().list;
+                        if (JSON.stringify(remoteOrders) !== JSON.stringify(cloudOrders)) {
+                            cloudOrders = remoteOrders;
+                            localStorage.setItem('nadzar_raion_orders', JSON.stringify(cloudOrders));
+                            renderAllViews();
+                            if (activeChatOrderId) renderChatMessages();
+                        }
+                    }
+                } catch (e) {}
+            }
+        }, 3000);
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+        window.escapeHtml = escapeHtml;
+
+        function formatRupiah(amount) {
+            return 'Rp ' + (amount || 0).toLocaleString('id-ID');
+        }
+        window.formatRupiah = formatRupiah;
+
+        function getUserRatingInfo(identifier) {
+            const users = getRegisteredUsers();
+            const user = users.find(u => u.phone === identifier || u.name === identifier || (identifier && identifier.includes(u.name)));
+            if (user && user.reviews && user.reviews.length > 0) {
+                const avg = user.ratingAvg || (user.reviews.reduce((a, b) => a + (b.rating || 5), 0) / user.reviews.length).toFixed(1);
+                return { text: `★ ${avg} (${user.reviews.length})`, avg: avg, count: user.reviews.length };
+            }
+            return { text: '★ Baru', avg: '5.0', count: 0 };
+        }
+        window.getUserRatingInfo = getUserRatingInfo;
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            const colors = {
+                success: 'bg-emerald-600 text-white',
+                error: 'bg-rose-600 text-white',
+                warning: 'bg-amber-500 text-white',
+                info: 'bg-slate-800 text-white'
+            };
+            toast.className = `pointer-events-auto p-3.5 rounded-2xl shadow-xl text-xs font-semibold flex items-center justify-between gap-2 transition-all duration-300 transform translate-y-2 opacity-0 ${colors[type] || colors.info}`;
+            toast.innerHTML = `<span>${escapeHtml(message)}</span><button onclick="this.parentElement.remove()" class="text-white/80 hover:text-white"><i class="fa-solid fa-xmark"></i></button>`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+        window.showToast = showToast;
+
+        function showConfirm(msg, callback) {
+            confirmCallback = callback;
+            document.getElementById('confirmModalText').innerText = msg;
+            document.getElementById('confirmModal').classList.remove('hidden');
+        }
+        window.showConfirm = showConfirm;
+
+        function handleConfirmResponse(isConfirmed) {
+            document.getElementById('confirmModal').classList.add('hidden');
+            if (isConfirmed && typeof confirmCallback === 'function') {
+                confirmCallback();
+            }
+            confirmCallback = null;
+        }
+        window.handleConfirmResponse = handleConfirmResponse;
+
+        function getServiceIcon(service) {
+            if (service === 'food') return '<i class="fa-solid fa-utensils text-amber-500"></i>';
+            if (service === 'delivery') return '<i class="fa-solid fa-box text-blue-500"></i>';
+            return '<i class="fa-solid fa-motorcycle text-brand-600"></i>';
+        }
+        window.getServiceIcon = getServiceIcon;
+
+        function getStatusBadge(status) {
+            if (status === 'pending') return `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"><i class="fa-solid fa-clock mr-1"></i>Mencari Driver</span>`;
+            if (status === 'taken') return `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"><i class="fa-solid fa-motorcycle mr-1"></i>Diproses Driver</span>`;
+            if (status === 'completed') return `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"><i class="fa-solid fa-circle-check mr-1"></i>Selesai</span>`;
+            if (status === 'cancelled') return `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300"><i class="fa-solid fa-circle-xmark mr-1"></i>Dibatalkan</span>`;
+            return `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-800">${status}</span>`;
+        }
+        window.getStatusBadge = getStatusBadge;
+
+        function getCurrentTime() {
+            const d = new Date();
+            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function getCurrentDateTime() {
+            const d = new Date();
+            return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + getCurrentTime();
+        }
+
+        function getGoogleMapsDirUrl(waypoints) {
+            if (!waypoints || waypoints.length === 0) return 'https://maps.google.com';
+            const valid = waypoints.filter(w => w.lat && w.lng);
+            if (valid.length === 0) return 'https://maps.google.com';
+            if (valid.length === 1) return `https://www.google.com/maps/search/?api=1&query=${valid[0].lat},${valid[0].lng}`;
+            const origin = `${valid[0].lat},${valid[0].lng}`;
+            const destination = `${valid[valid.length - 1].lat},${valid[valid.length - 1].lng}`;
+            let waypointsParam = '';
+            if (valid.length > 2) {
+                waypointsParam = '&waypoints=' + valid.slice(1, valid.length - 1).map(w => `${w.lat},${w.lng}`).join('|');
+            }
+            return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypointsParam}&travelmode=driving`;
+        }
+        window.getGoogleMapsDirUrl = getGoogleMapsDirUrl;
+
+        function getSingleWaypointNavUrl(lat, lng) {
+            if (!lat || !lng) return 'https://maps.google.com';
+            return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        }
+        window.getSingleWaypointNavUrl = getSingleWaypointNavUrl;
+
+        async function searchLocationForPoint(index) {
+            const input = document.getElementById(`searchInput-${index}`);
+            if (!input) return;
+            const query = input.value.trim();
+            if (!query) { showToast('Ketik nama lokasi atau jalan terlebih dahulu!', 'warning'); return; }
+            showToast(`Mencari lokasi "${query}"...`, 'info');
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.length > 0) {
+                        const item = data[0];
+                        const lat = parseFloat(item.lat);
+                        const lng = parseFloat(item.lon);
+                        customerWaypoints[index] = { name: item.display_name.split(',').slice(0, 3).join(','), lat, lng };
+                        activePickingWaypointIndex = index;
+                        if (customerMap) customerMap.setView([lat, lng], 15);
+                        renderWaypointsUI();
+                        calculateFare();
+                        updateCustomerMapVisuals();
+                        showToast(`Lokasi ditemukan: ${item.display_name.split(',')[0]}`, 'success');
+                        return;
+                    }
+                }
+                showToast('Lokasi tidak ditemukan. Coba ketik nama tempat yang lebih spesifik.', 'warning');
+            } catch (e) {
+                showToast('Gagal terhubung ke layanan lokasi.', 'error');
+            }
+        }
+        window.searchLocationForPoint = searchLocationForPoint;
+
+        function updateDriverMapVisuals() {
+            if (!driverMap) return;
+            if (window.driverMapMarkers) {
+                window.driverMapMarkers.forEach(m => driverMap.removeLayer(m));
+            }
+            window.driverMapMarkers = [];
+
+            const pendingOrders = getStoredOrders().filter(o => o.status === 'pending');
+            const orderCountBadge = document.getElementById('driverOrderCount');
+            if (orderCountBadge) orderCountBadge.innerText = `${pendingOrders.length} Pesanan Tersedia`;
+
+            const bounds = [];
+            pendingOrders.forEach(order => {
+                if (order.pickup && order.pickup.lat && order.pickup.lng) {
+                    const marker = L.marker([order.pickup.lat, order.pickup.lng]).addTo(driverMap);
+                    marker.bindPopup(`
+                        <div class="text-xs space-y-1">
+                            <strong class="text-brand-600 block">#${order.id} (${order.service.toUpperCase()})</strong>
+                            <div><b>Jemput:</b> ${escapeHtml(order.pickup.name)}</div>
+                            <div><b>Argo:</b> ${formatRupiah(order.fare)}</div>
+                            <button onclick="cocolOrder('${order.id}')" class="w-full bg-amber-500 text-white font-bold py-1 rounded text-[11px] mt-1">Cocol Order</button>
+                        </div>
+                    `);
+                    window.driverMapMarkers.push(marker);
+                    bounds.push([order.pickup.lat, order.pickup.lng]);
+                }
+            });
+
+            if (bounds.length > 0) {
+                if (bounds.length === 1) {
+                    driverMap.setView(bounds[0], 14);
+                } else {
+                    driverMap.fitBounds(bounds, { padding: [30, 30] });
+                }
+            }
+        }
+        window.updateDriverMapVisuals = updateDriverMapVisuals;
+
+        function getCurrentLocationForPoint(index = 0) {
+            if (!navigator.geolocation) {
+                showToast('Browser/HP Anda tidak mendukung geolokasi GPS.', 'error');
+                return;
+            }
+            showToast('Mencari posisi GPS Anda...', 'info');
+            navigator.geolocation.getCurrentPosition(
+                async function (position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    let displayName = `Lokasi GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+                    try {
+                        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+                        if (response.ok) {
+                            const res = await response.json();
+                            if (res && res.display_name) {
+                                displayName = res.display_name.split(',').slice(0, 3).join(',');
+                            }
+                        }
+                    } catch (e) {}
+
+                    customerWaypoints[index] = { name: displayName, lat: lat, lng: lng };
+                    activePickingWaypointIndex = index;
+
+                    if (customerMap) {
+                        customerMap.setView([lat, lng], 16);
+                    }
+                    renderWaypointsUI();
+                    calculateFare();
+                    updateCustomerMapVisuals();
+                    showToast(`Berhasil mendapatkan lokasi GPS saat ini!`, 'success');
+                },
+                function (error) {
+                    showToast('Gagal mengakses GPS. Pastikan izin lokasi diaktifkan pada browser/perangkat Anda.', 'warning');
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+        window.getCurrentLocationForPoint = getCurrentLocationForPoint;
+
+        function switchAuthTab(tab) {
+            const tabs = { 'cust-login': 'tabAuthCustLogin', 'drv-login': 'tabAuthDrvLogin', 'admin-login': 'tabAuthAdminLogin' };
+            const forms = { 'cust-login': 'formCustLogin', 'drv-login': 'formDrvLogin', 'admin-login': 'formAdminLogin', 'cust-reg': 'formCustReg', 'drv-reg': 'formDrvReg' };
+            const activeStyle = { 'cust-login': 'bg-brand-600', 'drv-login': 'bg-amber-500', 'admin-login': 'bg-blue-600' };
+            const inactive = "flex-1 py-2 rounded-lg text-gray-500 dark:text-gray-300 hover:text-gray-900 transition flex items-center justify-center gap-1";
+
+            Object.values(tabs).forEach(id => { const el = document.getElementById(id); if (el) el.className = inactive; });
+            Object.values(forms).forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+
+            if (tabs[tab]) {
+                const el = document.getElementById(tabs[tab]);
+                if (el) el.className = `flex-1 py-2 rounded-lg ${activeStyle[tab]} text-white shadow transition flex items-center justify-center gap-1`;
+            }
+            const f = document.getElementById(forms[tab]);
+            if (f) f.classList.remove('hidden');
+        }
+        window.switchAuthTab = switchAuthTab;
+
+        function doLogin(e, idField, passField, type, okMsg, failMsg) {
+            e.preventDefault();
+            const id = document.getElementById(idField).value.trim();
+            const pass = document.getElementById(passField).value.trim();
+            const user = getRegisteredUsers().find(u => (u.email === id || u.phone === id) && u.password === pass && u.accountType === type);
+            if (user) {
+                currentUser = user;
+                localStorage.setItem('nadzar_active_user', JSON.stringify(user));
+                checkAuth();
+                if (type === 'admin') openAdminModal();
+                showToast(okMsg(user), 'success');
+            } else {
+                showToast(failMsg, 'error');
+            }
+        }
+        function handleCustomerLogin(e) { doLogin(e, 'custLoginId', 'custLoginPassword', 'customer', u => `Selamat datang, ${u.name}!`, 'Email / No. HP atau Kata Sandi Pelanggan tidak cocok!'); }
+        function handleDriverLogin(e) { doLogin(e, 'drvLoginId', 'drvLoginPassword', 'driver', u => `Selamat bekerja, Driver ${u.name}!`, 'Email / No. HP atau Kata Sandi Driver salah!'); }
+        function handleAdminLogin(e) { doLogin(e, 'adminLoginId', 'adminLoginPassword', 'admin', () => 'Login Admin Berhasil!', 'Akses Admin Gagal! Periksa Email/Password Admin.'); }
+        window.handleCustomerLogin = handleCustomerLogin;
+        window.handleDriverLogin = handleDriverLogin;
+        window.handleAdminLogin = handleAdminLogin;
+
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('nadzar_active_user');
+            checkAuth();
+            showToast('Anda telah keluar dari akun.', 'info');
+        }
+        window.logout = logout;
+
+        function checkAuth() {
+            const authView = document.getElementById('authView');
+            const nameLabel = document.getElementById('currentUserName');
+            const badge = document.getElementById('roleIndicatorBadge');
+            const btnAdmin = document.getElementById('btnOpenAdminPortal');
+            const custView = document.getElementById('customerView');
+            const drvView = document.getElementById('driverView');
+
+            if (!currentUser) {
+                try {
+                    const saved = localStorage.getItem('nadzar_active_user');
+                    if (saved) currentUser = JSON.parse(saved);
+                } catch (e) {}
+            }
+
+            if (!currentUser) {
+                authView.classList.remove('hidden');
+                custView.classList.add('hidden');
+                drvView.classList.add('hidden');
+                btnAdmin.classList.add('hidden');
+                return;
+            }
+
+            authView.classList.add('hidden');
+            const ratingInfo = getUserRatingInfo(currentUser.phone || currentUser.name);
+            nameLabel.innerHTML = `${escapeHtml(currentUser.name)} <span class="text-amber-500 font-bold ml-1">${ratingInfo.text}</span>`;
+            const base = "px-2.5 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1 ";
+
+            if (currentUser.accountType === 'customer') {
+                badge.className = base + "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300";
+                badge.innerHTML = `<i class="fa-solid fa-user"></i> Pelanggan`;
+                btnAdmin.classList.add('hidden');
+                custView.classList.remove('hidden');
+                drvView.classList.add('hidden');
+                setTimeout(() => { if (customerMap) customerMap.invalidateSize(); }, 200);
+            } else if (currentUser.accountType === 'driver') {
+                badge.className = base + "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300";
+                badge.innerHTML = `<i class="fa-solid fa-motorcycle"></i> Driver Resmi`;
+                btnAdmin.classList.add('hidden');
+                drvView.classList.remove('hidden');
+                custView.classList.add('hidden');
+                setTimeout(() => { if (driverMap) driverMap.invalidateSize(); }, 200);
+            } else if (currentUser.accountType === 'admin') {
+                badge.className = base + "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
+                badge.innerHTML = `<i class="fa-solid fa-user-shield"></i> Admin`;
+                btnAdmin.classList.remove('hidden');
+                btnAdmin.classList.add('flex');
+                drvView.classList.remove('hidden');
+                custView.classList.add('hidden');
+                setTimeout(() => { if (driverMap) driverMap.invalidateSize(); }, 200);
+            }
+            renderAllViews();
+        }
+        window.checkAuth = checkAuth;
+
+        function openAdminModal() {
+            document.getElementById('adminModal').classList.remove('hidden');
+            renderAdminUserList();
+        }
+        window.openAdminModal = openAdminModal;
+
+        function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
+        window.closeAdminModal = closeAdminModal;
+
+        function switchAdminSubTab(subTab) {
+            activeAdminSubTab = subTab;
+            const tabs = { orders: 'adminTabOrders', drivers: 'adminTabDrivers', customers: 'adminTabCustomers' };
+            const activeCls = { orders: 'bg-blue-600', drivers: 'bg-amber-500', customers: 'bg-brand-600' };
+            const inactive = "flex-1 py-2 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition flex items-center justify-center gap-1.5";
+            Object.values(tabs).forEach(id => { const el = document.getElementById(id); if (el) el.className = inactive; });
+            document.getElementById(tabs[subTab]).className = `flex-1 py-2 rounded-xl ${activeCls[subTab]} text-white shadow transition flex items-center justify-center gap-1.5`;
+
+            const info = {
+                orders: ["Monitoring Pesanan Customer & Driver", "Pengawasan transaksi, siapa driver yang mengambil order, alasan pembatalan & etika chat"],
+                drivers: ["Kelola Driver Terdaftar", "Tambah, ubah, hapus, atau verifikasi data akun driver"],
+                customers: ["Kelola Pelanggan Terdaftar", "Tambah, ubah, atau hapus data akun pelanggan"]
+            }[subTab];
+            document.getElementById('adminSectionTitle').innerText = info[0];
+            document.getElementById('adminSectionDesc').innerText = info[1];
+            document.getElementById('btnAdminAddUser').classList.toggle('hidden', subTab === 'orders');
+            document.getElementById('adminOrderFilterBar').classList.toggle('hidden', subTab !== 'orders');
+            renderAdminUserList();
+        }
+        window.switchAdminSubTab = switchAdminSubTab;
+
+        function setAdminOrderFilter(filter) {
+            activeAdminOrderFilter = filter;
+            ['all', 'taken', 'pending', 'completed', 'cancelled'].forEach(f => {
+                const btn = document.getElementById(`flt-${f}`);
+                if (!btn) return;
+                btn.className = f === filter
+                    ? "px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-white shadow whitespace-nowrap"
+                    : "px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 whitespace-nowrap";
+            });
+            renderAdminUserList();
+        }
+        window.setAdminOrderFilter = setAdminOrderFilter;
+
+        function openAddUserForm() { document.getElementById('addUserFormContainer').classList.remove('hidden'); }
+        window.openAddUserForm = openAddUserForm;
+
+        function closeAddUserForm() { document.getElementById('addUserFormContainer').classList.add('hidden'); }
+        window.closeAddUserForm = closeAddUserForm;
+
+        function openEditUserModal(userId) {
+            const users = getRegisteredUsers();
+            const user = users.find(u => u.id === userId);
+            if (!user) {
+                showToast('Pengguna tidak ditemukan!', 'error');
+                return;
+            }
+
+            document.getElementById('editUserId').value = user.id;
+            document.getElementById('editUserRef').innerText = `ID: ${user.id}`;
+            document.getElementById('editAccName').value = user.name || '';
+            document.getElementById('editAccPhone').value = user.phone || '';
+            document.getElementById('editAccEmail').value = user.email || '';
+            document.getElementById('editAccPassword').value = user.password || '';
+            document.getElementById('editAccType').value = user.accountType || 'customer';
+            document.getElementById('editAccVehicle').value = user.vehicleType || 'Motor';
+            document.getElementById('editAccPlate').value = user.plateNumber || '';
+
+            toggleEditDriverFields();
+            document.getElementById('editUserModal').classList.remove('hidden');
+        }
+        window.openEditUserModal = openEditUserModal;
+
+        function closeEditUserModal() {
+            document.getElementById('editUserModal').classList.add('hidden');
+        }
+        window.closeEditUserModal = closeEditUserModal;
+
+        function toggleEditDriverFields() {
+            const type = document.getElementById('editAccType').value;
+            const driverGroup = document.getElementById('editDriverFieldsGroup');
+            if (type === 'driver') {
+                driverGroup.classList.remove('hidden');
+            } else {
+                driverGroup.classList.add('hidden');
+            }
+        }
+        window.toggleEditDriverFields = toggleEditDriverFields;
+
+        function saveEditUser(e) {
+            e.preventDefault();
+            const userId = document.getElementById('editUserId').value;
+            const users = getRegisteredUsers();
+            const index = users.findIndex(u => u.id === userId);
+
+            if (index === -1) {
+                showToast('Gagal memperbarui data: Pengguna tidak ditemukan.', 'error');
+                closeEditUserModal();
+                return;
+            }
+
+            const updatedType = document.getElementById('editAccType').value;
+            const updatedUser = {
+                ...users[index],
+                name: document.getElementById('editAccName').value.trim(),
+                phone: document.getElementById('editAccPhone').value.trim(),
+                email: document.getElementById('editAccEmail').value.trim(),
+                password: document.getElementById('editAccPassword').value.trim(),
+                accountType: updatedType,
+                vehicleType: updatedType === 'driver' ? document.getElementById('editAccVehicle').value : null,
+                plateNumber: updatedType === 'driver' ? document.getElementById('editAccPlate').value.trim() : null
+            };
+
+            users[index] = updatedUser;
+            saveRegisteredUsers(users);
+
+            if (currentUser && currentUser.id === userId) {
+                currentUser = updatedUser;
+                localStorage.setItem('nadzar_active_user', JSON.stringify(updatedUser));
+                checkAuth();
+            }
+
+            closeEditUserModal();
+            renderAdminUserList();
+            showToast(`Data ${updatedType === 'driver' ? 'Driver' : 'Pelanggan'} (${updatedUser.name}) berhasil diperbarui!`, 'success');
+        }
+        window.saveEditUser = saveEditUser;
+
+        function renderAdminUserList() {
+            const users = getRegisteredUsers();
+            const orders = getStoredOrders();
+            const drivers = users.filter(u => u.accountType === 'driver');
+            const customers = users.filter(u => u.accountType === 'customer');
+
+            document.getElementById('countAdminOrders').innerText = orders.length;
+            document.getElementById('countAdminDrivers').innerText = drivers.length;
+            document.getElementById('countAdminCustomers').innerText = customers.length;
+
+            const listContainer = document.getElementById('adminUserList');
+            if (activeAdminSubTab === 'orders') {
+                renderAdminOrdersMonitoring(orders, listContainer);
+                return;
+            }
+
+            const targetUsers = activeAdminSubTab === 'drivers' ? drivers : customers;
+            if (targetUsers.length === 0) {
+                listContainer.innerHTML = `<div class="p-4 text-center text-xs text-gray-400 bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700">Tidak ada data pengguna terdaftar.</div>`;
+                return;
+            }
+            listContainer.innerHTML = targetUsers.map(u => {
+                const rInfo = getUserRatingInfo(u.phone || u.name);
+                return `
+                <div class="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 flex items-center justify-between gap-2 shadow-sm">
+                    <div class="space-y-0.5">
+                        <strong class="text-xs text-gray-800 dark:text-gray-100 font-bold block">
+                            ${escapeHtml(u.name)} <span class="text-[10px] text-amber-500 font-bold ml-1">${rInfo.text}</span> <span class="text-[10px] text-gray-400 font-normal">(${u.id})</span>
+                        </strong>
+                        <div class="text-[11px] text-gray-500 flex items-center gap-2">
+                            <span><i class="fa-solid fa-phone text-emerald-500"></i> ${escapeHtml(u.phone)}</span>
+                            <span>•</span>
+                            <span><i class="fa-solid fa-envelope text-blue-500"></i> ${escapeHtml(u.email)}</span>
+                        </div>
+                        ${u.plateNumber ? `<div class="text-[10px] text-amber-600 font-bold"><i class="fa-solid fa-id-card mr-1"></i>Plat: ${escapeHtml(u.plateNumber)} (${escapeHtml(u.vehicleType || 'Motor')})</div>` : ''}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="openEditUserModal('${u.id}')" class="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 flex items-center justify-center text-xs transition" title="Ubah Data User">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button onclick="deleteUser('${u.id}')" class="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300 hover:bg-rose-200 flex items-center justify-center text-xs transition" title="Hapus User">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function renderAdminOrdersMonitoring(orders, container) {
+            const filtered = activeAdminOrderFilter === 'all' ? orders : orders.filter(o => o.status === activeAdminOrderFilter);
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="p-4 text-center text-xs text-gray-400 bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700">Tidak ada data orderan untuk filter ini.</div>`;
+                return;
+            }
+
+            container.innerHTML = filtered.map(order => {
+                const hasDriver = !!order.driverName;
+                const borderCls = order.status === 'cancelled' ? 'border-rose-200 dark:border-rose-900/60' : (hasDriver ? 'border-blue-200 dark:border-slate-700' : 'border-amber-300 dark:border-slate-700');
+                return `
+                    <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl border ${borderCls} shadow-sm space-y-3">
+                        <div class="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-700">
+                            <div>
+                                <strong class="text-xs text-slate-900 dark:text-slate-100 font-extrabold flex items-center gap-1.5">
+                                    <span class="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center text-xs">${getServiceIcon(order.service)}</span>
+                                    #${order.id} (${order.service.toUpperCase()})
+                                </strong>
+                                <span class="text-[10px] text-gray-400">${order.createdAt || 'N/A'}</span>
+                            </div>
+                            <div class="text-right">
+                                ${getStatusBadge(order.status)}
+                                <div class="text-xs font-bold text-brand-600 dark:text-brand-400 mt-0.5">${formatRupiah(order.fare)}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div class="bg-emerald-50 dark:bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 space-y-0.5">
+                                <span class="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide block"><i class="fa-solid fa-user mr-1"></i>Pelanggan</span>
+                                <strong class="text-gray-800 dark:text-gray-100 block truncate">${escapeHtml(order.customerName)}</strong>
+                                <a href="https://wa.me/${(order.customerPhone || '').replace(/^0/, '62')}" target="_blank" class="text-[11px] text-emerald-600 font-medium hover:underline block truncate">
+                                    <i class="fa-brands fa-whatsapp"></i> ${escapeHtml(order.customerPhone)}
+                                </a>
+                            </div>
+                            <div class="${hasDriver ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50' : 'bg-gray-100 dark:bg-slate-900 border-gray-200 dark:border-slate-700'} p-2.5 rounded-xl border space-y-0.5">
+                                <span class="text-[10px] font-bold ${hasDriver ? 'text-amber-700 dark:text-amber-400' : 'text-gray-500'} uppercase tracking-wide block"><i class="fa-solid fa-motorcycle mr-1"></i>Driver Pengambil</span>
+                                ${hasDriver ? `
+                                    <strong class="text-gray-800 dark:text-gray-100 block truncate">${escapeHtml(order.driverName)}</strong>
+                                    <a href="https://wa.me/${(order.driverPhone || '').replace(/^0/, '62')}" target="_blank" class="text-[11px] text-amber-600 font-medium hover:underline block truncate">
+                                        <i class="fa-brands fa-whatsapp"></i> ${escapeHtml(order.driverPhone)}
+                                    </a>
+                                ` : `
+                                    <span class="text-[11px] text-amber-600 font-bold block">${order.status === 'cancelled' ? 'Tidak ada driver' : 'Belum Di-cocol Driver'}</span>
+                                    <span class="text-[10px] text-gray-400 block">${order.status === 'cancelled' ? 'Pesanan dibatalkan' : 'Menunggu driver...'}</span>
+                                `}
+                            </div>
+                        </div>
+
+                        <div class="text-xs bg-gray-50 dark:bg-slate-900/60 p-2.5 rounded-xl space-y-1">
+                            ${waypointsListHtml(order, true)}
+                            ${order.notes ? `<div class="italic text-[10px] text-amber-600 dark:text-amber-400 pt-1"><i class="fa-solid fa-note-sticky mr-1"></i> "${escapeHtml(order.notes)}"</div>` : ''}
+                        </div>
+
+                        ${renderCancelInfo(order)}
+
+                        <div class="flex gap-2 pt-1">
+                            <button onclick="openChat('${order.id}')" class="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                                <i class="fa-solid fa-comments text-amber-300"></i> Intip Chat Log & Koordinasi
+                            </button>
+                            ${order.status === 'taken' ? `
+                                <button onclick="adminResetOrderDriver('${order.id}')" class="bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300 hover:bg-rose-200 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1" title="Batalkan cocolan driver jika melanggar etik">
+                                    <i class="fa-solid fa-user-xmark"></i> Reset Driver
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function adminResetOrderDriver(orderId) {
+            showConfirm('Apakah Anda yakin ingin membatalkan cocolan driver pada orderan ini? Orderan akan kembali ke Feed Driver.', () => {
+                const orders = getStoredOrders();
+                const order = orders.find(o => o.id === orderId);
+                if (order) {
+                    order.status = 'pending';
+                    order.driverName = null;
+                    order.driverPhone = null;
+                    order.chat.push({ sender: 'system', text: 'Admin telah mereset cocolan driver karena pelanggaran etika/kendala.', time: getCurrentTime() });
+                    saveStoredOrders(orders);
+                    renderAllViews();
+                    renderAdminUserList();
+                    showToast('Orderan telah di-reset dan dikembalikan ke Feed Driver.', 'info');
+                }
+            });
+        }
+        window.adminResetOrderDriver = adminResetOrderDriver;
+
+        function saveNewUser(e) {
+            e.preventDefault();
+            const type = document.getElementById('newAccType').value;
+            const users = getRegisteredUsers();
+            const plate = document.getElementById('newAccPlate').value.trim();
+            users.push({
+                id: (type === 'driver' ? 'DRV-' : 'USR-') + Math.floor(100 + Math.random() * 900),
+                name: document.getElementById('newAccName').value.trim(),
+                phone: document.getElementById('newAccPhone').value.trim(),
+                email: document.getElementById('newAccEmail').value.trim(),
+                password: document.getElementById('newAccPassword').value.trim(),
+                accountType: type,
+                vehicleType: type === 'driver' ? 'Motor' : null,
+                plateNumber: type === 'driver' ? (plate || 'D 1234 XX') : null
+            });
+            saveRegisteredUsers(users);
+            closeAddUserForm();
+            renderAdminUserList();
+            showToast(`Akun ${type === 'driver' ? 'Driver' : 'Pelanggan'} baru berhasil ditambahkan!`, 'success');
+        }
+        window.saveNewUser = saveNewUser;
+
+        function deleteUser(userId) {
+            showConfirm('Apakah Anda yakin ingin menghapus akun user ini?', () => {
+                saveRegisteredUsers(getRegisteredUsers().filter(u => u.id !== userId));
+                renderAdminUserList();
+                showToast('Akun telah dihapus.', 'info');
+            });
+        }
+        window.deleteUser = deleteUser;
+
+        function selectService(service) {
+            selectedServiceType = service;
+            ['ride', 'food', 'delivery'].forEach(s => {
+                const btn = document.getElementById(`svc-${s}`);
+                if (!btn) return;
+                btn.className = s === service
+                    ? "service-btn flex flex-col items-center justify-center p-3 rounded-xl border-2 border-brand-500 bg-brand-50/50 dark:bg-slate-700/50 text-brand-600 dark:text-brand-400 transition-all"
+                    : "service-btn flex flex-col items-center justify-center p-3 rounded-xl border-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-400 transition-all";
+            });
+            calculateFare();
+        }
+        window.selectService = selectService;
+
+        function addWaypoint() {
+            if (customerWaypoints.length >= 5) { showToast('Maksimal 5 titik perjalanan per order!', 'warning'); return; }
+            const last = customerWaypoints[customerWaypoints.length - 1];
+            const hasLastCoords = last && last.lat && last.lng;
+            customerWaypoints.push({
+                name: "",
+                lat: hasLastCoords ? last.lat + (Math.random() - 0.5) * 0.005 : null,
+                lng: hasLastCoords ? last.lng + (Math.random() - 0.5) * 0.005 : null
+            });
+            activePickingWaypointIndex = customerWaypoints.length - 1;
+            renderWaypointsUI();
+            calculateFare();
+            updateCustomerMapVisuals();
+            showToast(`Titik ${customerWaypoints.length} berhasil ditambahkan. Silakan isi lokasi.`, 'success');
+        }
+        window.addWaypoint = addWaypoint;
+
+        function removeWaypoint(index) {
+            if (customerWaypoints.length <= 2) { showToast('Minimal 2 titik lokasi (Penjemputan & Tujuan)!', 'warning'); return; }
+            customerWaypoints.splice(index, 1);
+            if (activePickingWaypointIndex >= customerWaypoints.length) activePickingWaypointIndex = customerWaypoints.length - 1;
+            renderWaypointsUI();
+            calculateFare();
+            updateCustomerMapVisuals();
+            showToast('Titik berhasil dihapus.', 'info');
+        }
+        window.removeWaypoint = removeWaypoint;
+
+        function setActivePickingWaypoint(index) {
+            activePickingWaypointIndex = index;
+            renderWaypointsUI();
+        }
+        window.setActivePickingWaypoint = setActivePickingWaypoint;
+
+        function renderWaypointsUI() {
+            const bar = document.getElementById('quickPointSelectorBar');
+            const container = document.getElementById('waypointsContainer');
+            const activeLabel = document.getElementById('activePointLabel');
+
+            if (activeLabel && customerWaypoints[activePickingWaypointIndex]) {
+                const isFirst = activePickingWaypointIndex === 0;
+                const isLast = activePickingWaypointIndex === customerWaypoints.length - 1;
+                activeLabel.innerText = `Titik ${activePickingWaypointIndex + 1}${isFirst ? ' (Penjemputan)' : (isLast ? ' (Tujuan Akhir)' : ' (Persinggahan)')}`;
+            }
+
+            if (bar) {
+                bar.innerHTML = customerWaypoints.map((wp, idx) => `
+                    <button type="button" onclick="setActivePickingWaypoint(${idx})" class="px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition whitespace-nowrap ${idx === activePickingWaypointIndex ? 'bg-brand-600 text-white shadow' : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700'}">
+                        <i class="fa-solid fa-location-dot ${idx === 0 ? 'text-emerald-400' : 'text-rose-400'}"></i> Titik ${idx + 1}
+                    </button>
+                `).join('');
+            }
+
+            if (container) {
+                container.innerHTML = customerWaypoints.map((wp, idx) => {
+                    const isFirst = idx === 0;
+                    const isLast = idx === customerWaypoints.length - 1;
+                    const badgeText = isFirst ? 'Jemput' : (isLast ? 'Tujuan' : `Stop ${idx}`);
+                    const badgeColor = isFirst ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300';
+                    return `
+                        <div class="bg-gray-50 dark:bg-slate-900 p-3 rounded-2xl border ${idx === activePickingWaypointIndex ? 'border-brand-500 shadow-sm' : 'border-gray-200 dark:border-slate-700'} space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold ${badgeColor} px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <i class="fa-solid fa-map-pin"></i> Titik ${idx + 1} (${badgeText})
+                                </span>
+                                <div class="flex items-center gap-1">
+                                    ${isFirst ? `<button type="button" onclick="getCurrentLocationForPoint(${idx})" class="text-[11px] bg-amber-500 text-white px-2 py-0.5 rounded-lg font-bold hover:bg-amber-600 shadow-sm flex items-center gap-1"><i class="fa-solid fa-location-crosshairs"></i> GPS Lokasi Saya</button>` : ''}
+                                    <button type="button" onclick="setActivePickingWaypoint(${idx})" class="text-[11px] bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300 px-2 py-0.5 rounded-lg font-bold hover:bg-brand-200">Pilih di Map</button>
+                                    ${customerWaypoints.length > 2 ? `<button type="button" onclick="removeWaypoint(${idx})" class="text-xs text-rose-500 hover:text-rose-700 p-1"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <input type="text" id="searchInput-${idx}" value="${escapeHtml(wp.name)}" placeholder="Ketik nama jalan/lokasi atau klik GPS..." class="flex-1 text-xs p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-100 outline-none focus:ring-2 focus:ring-brand-500">
+                                <button type="button" onclick="searchLocationForPoint(${idx})" class="bg-slate-800 hover:bg-slate-900 text-white px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+                                    <i class="fa-solid fa-magnifying-glass"></i> Cari
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        function calculateGeoDistance(lat1, lon1, lat2, lon2) {
+            if (lat1 === null || lon1 === null || lat2 === null || lon2 === null) return 0;
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function computeFare() {
+            const w = customerWaypoints;
+            if (!w[0].lat || !w[0].lng || !w[1].lat || !w[1].lng) {
+                return { totalDist: 0, extraStopsCount: Math.max(0, w.length - 2), extraStopsFee: 0, totalFare: 8000, isValid: false };
+            }
+            const baseDist = Math.round(calculateGeoDistance(w[0].lat, w[0].lng, w[1].lat, w[1].lng) * 10) / 10;
+            let extraDist = 0;
+            for (let i = 1; i < w.length - 1; i++) {
+                if (w[i].lat && w[i].lng && w[i + 1].lat && w[i + 1].lng) {
+                    extraDist += calculateGeoDistance(w[i].lat, w[i].lng, w[i + 1].lat, w[i + 1].lng);
+                }
+            }
+            extraDist = Math.round(extraDist * 10) / 10;
+            const totalDist = Math.round((baseDist + extraDist) * 10) / 10;
+            const distanceFare = baseDist > 4 ? 8000 + Math.ceil(baseDist - 4) * 2000 : 8000;
+            const extraStopsCount = Math.max(0, w.length - 2);
+            const extraStopsFee = (extraDist > 0 ? Math.ceil(extraDist) : 0) * 1000;
+            return { totalDist, extraStopsCount, extraStopsFee, totalFare: distanceFare + extraStopsFee, isValid: true };
+        }
+
+        function calculateFare() {
+            if (customerWaypoints.length < 2) return;
+            const f = computeFare();
+            document.getElementById('distanceDisplay').innerText = f.isValid ? `${f.totalDist} Km` : '0 Km';
+            document.getElementById('fareDisplay').innerText = formatRupiah(f.totalFare);
+            document.getElementById('pointsCountDisplay').innerText = `${customerWaypoints.length} Titik (${f.extraStopsCount} Ekstra)`;
+            document.getElementById('extraStopsFeeDisplay').innerText = formatRupiah(f.extraStopsFee);
+        }
+        window.calculateFare = calculateFare;
+
+        function initMaps() {
+            try {
+                if (document.getElementById('customerMap') && !customerMap) {
+                    customerMap = L.map('customerMap').setView([-6.200000, 106.816666], 13);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    }).addTo(customerMap);
+
+                    customerMap.on('click', async function (e) {
+                        const wp = customerWaypoints[activePickingWaypointIndex];
+                        if (wp) {
+                            wp.lat = e.latlng.lat;
+                            wp.lng = e.latlng.lng;
+                            wp.name = `Titik Lokasi (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`;
+                            try {
+                                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}`);
+                                if (response.ok) {
+                                    const res = await response.json();
+                                    if (res && res.display_name) {
+                                        wp.name = res.display_name.split(',').slice(0, 3).join(',');
+                                    }
+                                }
+                            } catch (err) {}
+                            renderWaypointsUI();
+                            calculateFare();
+                            updateCustomerMapVisuals();
+                        }
+                    });
+                }
+                if (document.getElementById('map') && !driverMap) {
+                    driverMap = L.map('map').setView([-6.200000, 106.816666], 13);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    }).addTo(driverMap);
+                }
+                updateCustomerMapVisuals();
+            } catch (e) {
+                console.error("Map initialization error:", e);
+            }
+        }
+        window.initMaps = initMaps;
+
+        function updateCustomerMapVisuals() {
+            if (!customerMap) return;
+            customerMapMarkers.forEach(m => customerMap.removeLayer(m));
+            customerMapMarkers = [];
+            if (customerPolyline) customerMap.removeLayer(customerPolyline);
+
+            const latLngs = [];
+            customerWaypoints.forEach((wp, idx) => {
+                if (wp.lat !== null && wp.lng !== null) {
+                    const marker = L.marker([wp.lat, wp.lng]).addTo(customerMap);
+                    marker.bindPopup(`<b>Titik ${idx + 1}:</b> ${escapeHtml(wp.name || 'Lokasi Terpilih')}`);
+                    customerMapMarkers.push(marker);
+                    latLngs.push([wp.lat, wp.lng]);
+                }
+            });
+
+            if (latLngs.length > 1) {
+                customerPolyline = L.polyline(latLngs, { color: '#16a34a', weight: 4, opacity: 0.8 }).addTo(customerMap);
+                customerMap.fitBounds(customerPolyline.getBounds(), { padding: [30, 30] });
+            } else if (latLngs.length === 1) {
+                customerMap.setView(latLngs[0], 15);
+            }
+        }
+        window.updateCustomerMapVisuals = updateCustomerMapVisuals;
+
+        function createOrder() {
+            if (!currentUser || currentUser.accountType !== 'customer') { showToast('Hanya akun pelanggan yang dapat membuat pesanan!', 'warning'); return; }
+            if (customerWaypoints.length < 2) { showToast('Pilih minimal 2 titik lokasi!', 'warning'); return; }
+            
+            const hasValidPoints = customerWaypoints.every(wp => wp.name && wp.name.trim() !== '' && wp.lat !== null && wp.lng !== null);
+            if (!hasValidPoints) {
+                showToast('Mohon tentukan lokasi untuk Titik 1 (Jemput) dan Titik 2 (Tujuan) terlebih dahulu!', 'warning');
+                return;
+            }
+
+            const f = computeFare();
+            const paymentRadio = document.querySelector('input[name="paymentMethod"]:checked');
+
+            const newOrder = {
+                id: 'ORD-' + Math.floor(100 + Math.random() * 900),
+                service: selectedServiceType,
+                waypoints: JSON.parse(JSON.stringify(customerWaypoints)),
+                pickup: customerWaypoints[0],
+                destination: customerWaypoints[customerWaypoints.length - 1],
+                distanceKm: f.totalDist,
+                extraStopsCount: f.extraStopsCount,
+                extraStopsFee: f.extraStopsFee,
+                fare: f.totalFare,
+                notes: document.getElementById('orderNotes').value.trim() || 'Tidak ada catatan tambahan.',
+                paymentMethod: paymentRadio ? paymentRadio.value : 'COD',
+                status: 'pending',
+                createdAt: getCurrentDateTime(),
+                completedAt: null,
+                customerName: currentUser.name,
+                customerPhone: currentUser.phone,
+                driverName: null,
+                driverPhone: null,
+                cancelHistory: [],
+                chat: [{ sender: 'system', text: 'Pesanan telah dibuat dan disiarkan ke Peta Driver.', time: getCurrentTime() }]
+            };
+
+            const orders = getStoredOrders();
+            orders.unshift(newOrder);
+            saveStoredOrders(orders);
+            document.getElementById('orderNotes').value = '';
+            renderAllViews();
+            showToast(`Pesanan #${newOrder.id} (${customerWaypoints.length} titik) berhasil dibuat!`, 'success');
+        }
+        window.createOrder = createOrder;
+
+        function cocolOrder(orderId) {
+            if (!currentUser || (currentUser.accountType !== 'driver' && currentUser.accountType !== 'admin')) {
+                showToast('Hanya driver resmi terdaftar yang dapat mencocol orderan!', 'warning');
+                return;
+            }
+            const orders = getStoredOrders();
+            const order = orders.find(o => o.id === orderId);
+            if (order && order.status === 'pending') {
+                order.status = 'taken';
+                order.driverName = currentUser.name + ` (${currentUser.plateNumber || 'Driver'})`;
+                order.driverPhone = currentUser.phone;
+                order.chat.push({ sender: 'system', text: `Pesanan di-cocol oleh Driver ${order.driverName}. Chat otomatis dibuka.`, time: getCurrentTime() });
+                saveStoredOrders(orders);
+                renderAllViews();
+                openChat(orderId);
+                showToast(`Orderan #${orderId} berhasil di-cocol!`, 'success');
+            }
+        }
+        window.cocolOrder = cocolOrder;
+
+        const CANCEL_OTHER = 'Lainnya (tulis manual)';
+        const CANCEL_REASONS = {
+            customer: [
+                'Salah memasukkan titik lokasi',
+                'Ingin mengubah detail pesanan',
+                'Terlalu lama menunggu driver',
+                'Sudah menemukan transportasi lain',
+                CANCEL_OTHER
+            ],
+            driver: [
+                'Pelanggan tidak bisa dihubungi',
+                'Pelanggan tidak ada di titik jemput',
+                'Kendaraan bermasalah / mogok',
+                'Lokasi terlalu jauh / tidak terjangkau',
+                CANCEL_OTHER
+            ]
+        };
+        let cancelTargetOrderId = null;
+
+        function canCancelOrder(order) {
+            if (!order || !currentUser) return false;
+            if (currentUser.accountType === 'customer') return order.status === 'pending' || order.status === 'taken';
+            return order.status === 'taken';
+        }
+
+        function openCancelModal(orderId) {
+            const order = getStoredOrders().find(o => o.id === orderId);
+            if (!canCancelOrder(order)) { showToast('Pesanan ini tidak dapat dibatalkan.', 'warning'); return; }
+
+            cancelTargetOrderId = orderId;
+            const isCustomer = currentUser.accountType === 'customer';
+            const reasons = CANCEL_REASONS[isCustomer ? 'customer' : 'driver'];
+
+            document.getElementById('cancelOrderRef').innerText = `Order #${order.id}`;
+            document.getElementById('cancelInfoText').innerText = isCustomer
+                ? 'Pesanan akan dibatalkan permanen dan driver akan diberi tahu.'
+                : 'Pesanan akan dikembalikan ke Feed Driver agar bisa diambil driver lain. Alasan Anda tercatat.';
+
+            document.getElementById('cancelReasonOptions').innerHTML = reasons.map((r, i) => `
+                <label class="flex items-center p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-800 transition">
+                    <input type="radio" name="cancelReasonRadio" value="${escapeHtml(r)}" ${i === 0 ? 'checked' : ''} onchange="toggleCancelManual()" class="accent-rose-600">
+                    <span class="ml-2 text-xs font-medium">${escapeHtml(r)}</span>
+                </label>
+            `).join('');
+
+            document.getElementById('cancelReasonManual').value = '';
+            toggleCancelManual();
+            document.getElementById('cancelModal').classList.remove('hidden');
+        }
+        window.openCancelModal = openCancelModal;
+
+        function closeCancelModal() {
+            document.getElementById('cancelModal').classList.add('hidden');
+            cancelTargetOrderId = null;
+        }
+        window.closeCancelModal = closeCancelModal;
+
+        function toggleCancelManual() {
+            const selected = document.querySelector('input[name="cancelReasonRadio"]:checked');
+            const manual = document.getElementById('cancelReasonManual');
+            if (selected && selected.value === CANCEL_OTHER) {
+                manual.classList.remove('hidden');
+                manual.focus();
+            } else {
+                manual.classList.add('hidden');
+            }
+        }
+        window.toggleCancelManual = toggleCancelManual;
+
+        function submitCancelOrder(e) {
+            e.preventDefault();
+            if (!cancelTargetOrderId) return;
+
+            const selected = document.querySelector('input[name="cancelReasonRadio"]:checked');
+            let reason = selected ? selected.value : '';
+            if (reason === CANCEL_OTHER) {
+                reason = document.getElementById('cancelReasonManual').value.trim();
+                if (reason.length < 5) { showToast('Tulis alasan pembatalan minimal 5 karakter.', 'warning'); return; }
+            }
+            if (!reason) { showToast('Pilih alasan pembatalan terlebih dahulu.', 'warning'); return; }
+
+            const orders = getStoredOrders();
+            const order = orders.find(o => o.id === cancelTargetOrderId);
+            if (!canCancelOrder(order)) {
+                showToast('Status pesanan sudah berubah, tidak bisa dibatalkan.', 'warning');
+                closeCancelModal();
+                renderAllViews();
+                return;
+            }
+
+            order.cancelHistory = order.cancelHistory || [];
+
+            if (currentUser.accountType === 'customer') {
+                order.status = 'cancelled';
+                order.cancelledBy = 'customer';
+                order.cancelReason = reason;
+                order.cancelledAt = getCurrentDateTime();
+                order.chat.push({ sender: 'system', text: `Pesanan dibatalkan oleh Pelanggan. Alasan: ${reason}`, time: getCurrentTime() });
+            } else {
+                order.cancelHistory.push({
+                    by: 'driver',
+                    driverName: order.driverName,
+                    driverPhone: order.driverPhone,
+                    reason: reason,
+                    at: getCurrentDateTime()
+                });
+                order.chat.push({ sender: 'system', text: `Driver ${order.driverName} membatalkan pesanan. Alasan: ${reason}. Pesanan dikembalikan ke Feed Driver.`, time: getCurrentTime() });
+                order.status = 'pending';
+                order.driverName = null;
+                order.driverPhone = null;
+            }
+
+            saveStoredOrders(orders);
+            closeCancelModal();
+            closeChat();
+            renderAllViews();
+            if (!document.getElementById('adminModal').classList.contains('hidden')) renderAdminUserList();
+            showToast('Pesanan berhasil dibatalkan.', 'info');
+        }
+        window.submitCancelOrder = submitCancelOrder;
+
+        function renderCancelInfo(order) {
+            let html = '';
+            if (order.status === 'cancelled') {
+                html += `<div class="text-[11px] bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 p-2 rounded-xl border border-rose-200 dark:border-rose-800/50">
+                    <i class="fa-solid fa-ban mr-1"></i><b>Dibatalkan oleh ${order.cancelledBy === 'customer' ? 'Pelanggan' : 'Driver'}</b> • ${escapeHtml(order.cancelledAt || '')}<br>
+                    Alasan: <i>"${escapeHtml(order.cancelReason)}"</i>
+                </div>`;
+            }
+            (order.cancelHistory || []).forEach(h => {
+                html += `<div class="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 p-2 rounded-xl border border-amber-200 dark:border-amber-800/50">
+                    <i class="fa-solid fa-rotate-left mr-1"></i>Driver ${escapeHtml(h.driverName || '')} membatalkan (${escapeHtml(h.at)}): <i>"${escapeHtml(h.reason)}"</i>
+                </div>`;
+            });
+            return html;
+        }
+
+        function waypointsListHtml(order, truncate) {
+            return (order.waypoints || []).map((wp, idx) => `
+                <div class="${truncate ? 'truncate text-[11px]' : ''}"><i class="fa-solid fa-map-pin ${idx === 0 ? 'text-emerald-500' : 'text-rose-500'} mr-1"></i> <b>Titik ${idx + 1}:</b> ${escapeHtml(wp.name)}</div>
+            `).join('');
+        }
+
+        function emptyBox(text) {
+            return `<div class="p-4 text-center text-xs text-gray-400 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700">${text}</div>`;
+        }
+
+        function renderCustomerOrders() {
+            const activeList = document.getElementById('customerOrdersList');
+            const completedList = document.getElementById('customerCompletedOrdersList');
+            if (!currentUser || currentUser.accountType !== 'customer') return;
+
+            const myOrders = getStoredOrders().filter(o => o.customerName === currentUser.name || o.customerPhone === currentUser.phone);
+            const activeOrders = myOrders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
+            const historyOrders = myOrders.filter(o => o.status === 'completed' || o.status === 'cancelled');
+
+            activeList.innerHTML = activeOrders.length === 0 ? emptyBox('Belum ada pesanan aktif saat ini.') : activeOrders.map(order => {
+                const drvRating = order.driverName ? getUserRatingInfo(order.driverPhone || order.driverName) : null;
+                return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 rounded-xl bg-brand-100 dark:bg-brand-900/40 text-brand-600 dark:text-brand-400 flex items-center justify-center text-sm">${getServiceIcon(order.service)}</span>
+                            <div>
+                                <strong class="text-xs text-slate-800 dark:text-slate-100 font-bold block">#${order.id} (${order.service.toUpperCase()})</strong>
+                                <span class="text-[10px] text-gray-400">${order.paymentMethod} • ${formatRupiah(order.fare)}</span>
+                            </div>
+                        </div>
+                        ${getStatusBadge(order.status)}
+                    </div>
+
+                    <div class="text-xs text-gray-600 dark:text-gray-300 space-y-1 bg-gray-50 dark:bg-slate-900/50 p-2.5 rounded-xl">
+                        ${waypointsListHtml(order, false)}
+                        ${order.notes ? `<div class="italic text-[11px] text-amber-600 dark:text-amber-400 mt-1"><i class="fa-solid fa-note-sticky mr-1"></i> "${escapeHtml(order.notes)}"</div>` : ''}
+                    </div>
+
+                    ${order.driverName ? `
+                        <div class="text-xs bg-brand-50 dark:bg-brand-950/30 p-2 rounded-xl text-brand-800 dark:text-brand-300 flex items-center justify-between">
+                            <span><i class="fa-solid fa-motorcycle mr-1"></i> <b>Driver:</b> ${escapeHtml(order.driverName)}</span>
+                            <span class="text-amber-500 font-bold">${drvRating.text}</span>
+                        </div>
+                    ` : ''}
+
+                    ${renderCancelInfo(order)}
+
+                    <div class="text-[10px] text-gray-400 flex justify-between px-1">
+                        <span><i class="fa-solid fa-clock mr-1"></i>Dibuat: ${order.createdAt || 'N/A'}</span>
+                        <span><i class="fa-solid fa-route mr-1"></i>${order.distanceKm} Km</span>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="openChat('${order.id}')" class="col-span-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow transition">
+                            <i class="fa-solid fa-comments"></i> Buka Chat
+                        </button>
+                        <button onclick="openCancelModal('${order.id}')" class="bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 hover:bg-rose-200 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1 transition">
+                            <i class="fa-solid fa-ban"></i> Batal
+                        </button>
+                    </div>
+                </div>
+            `}).join('');
+
+            completedList.innerHTML = historyOrders.length === 0 ? emptyBox('Belum ada riwayat pesanan.') : historyOrders.map(order => {
+                const cancelled = order.status === 'cancelled';
+                const hasDriverRating = !!order.rating;
+                const drvInfo = order.driverName ? getUserRatingInfo(order.driverPhone || order.driverName) : null;
+                const custRatingFromDriver = order.customerRating;
+
+                return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border ${cancelled ? 'border-rose-200 dark:border-rose-900/60' : 'border-gray-200 dark:border-slate-700'} space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 rounded-xl ${cancelled ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'} flex items-center justify-center text-sm">${getServiceIcon(order.service)}</span>
+                            <div>
+                                <strong class="text-xs text-slate-800 dark:text-slate-100 font-bold block">#${order.id} (${order.service.toUpperCase()})</strong>
+                                <span class="text-[10px] text-gray-400">${order.paymentMethod} • ${formatRupiah(order.fare)}</span>
+                            </div>
+                        </div>
+                        ${getStatusBadge(order.status)}
+                    </div>
+
+                    <div class="text-xs text-gray-600 dark:text-gray-300 space-y-1 bg-gray-50 dark:bg-slate-900/50 p-2.5 rounded-xl">
+                        ${waypointsListHtml(order, false)}
+                    </div>
+
+                    ${order.driverName ? `
+                        <div class="text-[11px] text-gray-600 dark:text-gray-300 bg-slate-100 dark:bg-slate-900/60 p-2 rounded-xl flex justify-between items-center">
+                            <span><i class="fa-solid fa-motorcycle text-amber-500 mr-1"></i> <b>Driver:</b> ${escapeHtml(order.driverName)}</span>
+                            <span class="font-bold text-amber-500 text-xs">${drvInfo ? drvInfo.text : ''}</span>
+                        </div>
+                    ` : ''}
+
+                    ${hasDriverRating ? `
+                        <div class="text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/50">
+                            <i class="fa-solid fa-comment-dots text-amber-500 mr-1"></i><b>Ulasan Anda untuk Driver:</b> "${escapeHtml(order.review || 'Sangat baik')}" (${order.rating}/5 <i class="fa-solid fa-star text-amber-400"></i>)
+                        </div>
+                    ` : (!cancelled && order.status === 'completed' ? `
+                        <button onclick="openRatingModal('${order.id}', 'driver')" class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                            <i class="fa-solid fa-star"></i> Beri Rating & Ulasan Driver
+                        </button>
+                    ` : '')}
+
+                    ${custRatingFromDriver ? `
+                        <div class="text-xs bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/50">
+                            <i class="fa-solid fa-user-check text-emerald-500 mr-1"></i><b>Rating dari Driver:</b> ${custRatingFromDriver}/5 <i class="fa-solid fa-star text-amber-400"></i> ${order.customerReview ? ` - "${escapeHtml(order.customerReview)}"` : ''}
+                        </div>
+                    ` : ''}
+
+                    ${renderCancelInfo(order)}
+
+                    <div class="text-[10px] text-gray-400 bg-slate-50 dark:bg-slate-900/80 p-2 rounded-xl flex items-center justify-between gap-1">
+                        <div><i class="fa-solid fa-calendar-plus mr-1 text-slate-500"></i><b>Masuk:</b> ${order.createdAt || 'N/A'}</div>
+                        <div>${cancelled
+                            ? `<i class="fa-solid fa-calendar-xmark mr-1 text-rose-500"></i><b>Batal:</b> ${order.cancelledAt || 'N/A'}`
+                            : `<i class="fa-solid fa-calendar-check mr-1 text-emerald-500"></i><b>Selesai:</b> ${order.completedAt || 'N/A'}`}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function isDriverRole() {
+            return currentUser && (currentUser.accountType === 'driver' || currentUser.accountType === 'admin');
+        }
+
+        function renderDriverFeed() {
+            const list = document.getElementById('driverFeedList');
+            if (!list || !isDriverRole()) return;
+
+            const pendingOrders = getStoredOrders().filter(o => o.status === 'pending');
+            if (pendingOrders.length === 0) { list.innerHTML = emptyBox('Tidak ada pesanan baru masuk saat ini.'); return; }
+
+            list.innerHTML = pendingOrders.map(order => {
+                const custRating = getUserRatingInfo(order.customerPhone || order.customerName);
+                return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-brand-200 dark:border-slate-700 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center text-sm">${getServiceIcon(order.service)}</span>
+                            <div>
+                                <strong class="text-xs text-slate-800 dark:text-slate-100 font-bold block">#${order.id} (${order.service.toUpperCase()})</strong>
+                                <span class="text-[10px] text-gray-500">${escapeHtml(order.customerName)} <span class="text-amber-500 font-bold">${custRating.text}</span></span>
+                            </div>
+                        </div>
+                        <span class="text-sm font-extrabold text-brand-600 dark:text-brand-400">${formatRupiah(order.fare)}</span>
+                    </div>
+
+                    <div class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 bg-gray-50 dark:bg-slate-900/50 p-2.5 rounded-xl">
+                        ${(order.waypoints || []).map((wp, idx) => `
+                            <div class="flex items-center justify-between gap-2">
+                                <span><i class="fa-solid fa-map-pin ${idx === 0 ? 'text-emerald-500' : 'text-rose-500'} mr-1"></i> <b>Titik ${idx + 1}:</b> ${escapeHtml(wp.name)}</span>
+                                <a href="${getSingleWaypointNavUrl(wp.lat, wp.lng)}" target="_blank" class="text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:underline whitespace-nowrap"><i class="fa-solid fa-location-arrow"></i> Peta</a>
+                            </div>
+                        `).join('')}
+                        <div><i class="fa-solid fa-route text-blue-500 mr-1"></i> <b>Jarak:</b> ${order.distanceKm} Km (${order.paymentMethod})</div>
+                        ${order.extraStopsCount > 0 ? `<div class="text-[11px] text-amber-600 dark:text-amber-400 font-bold"><i class="fa-solid fa-plus-circle mr-1"></i> Termasuk ${order.extraStopsCount} titik tambahan (+${formatRupiah(order.extraStopsFee)})</div>` : ''}
+                        ${order.notes ? `<div class="italic text-[11px] text-amber-600 dark:text-amber-400 mt-1"><i class="fa-solid fa-note-sticky mr-1"></i> "${escapeHtml(order.notes)}"</div>` : ''}
+                    </div>
+
+                    ${renderCancelInfo(order)}
+
+                    <div class="grid grid-cols-5 gap-2">
+                        <a href="${getGoogleMapsDirUrl(order.waypoints)}" target="_blank" class="col-span-2 bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                            <i class="fa-solid fa-diamond-turn-right text-amber-400"></i> Cek Rute
+                        </a>
+                        <button onclick="cocolOrder('${order.id}')" class="col-span-3 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-md active:scale-95 transition">
+                            <i class="fa-solid fa-bolt"></i> Cocol Order (${formatRupiah(order.fare)})
+                        </button>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function renderDriverActiveOrders() {
+            const list = document.getElementById('driverActiveList');
+            if (!list || !isDriverRole()) return;
+
+            const myActiveJobs = getStoredOrders().filter(o => o.status === 'taken' && (o.driverPhone === currentUser.phone || currentUser.accountType === 'admin'));
+            if (myActiveJobs.length === 0) { list.innerHTML = emptyBox('Belum ada pesanan yang sedang Anda jalankan.'); return; }
+
+            list.innerHTML = myActiveJobs.map(order => `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-emerald-500/30 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <strong class="text-xs text-slate-800 dark:text-slate-100 font-bold block">#${order.id} (${order.service.toUpperCase()})</strong>
+                            <span class="text-[10px] text-gray-400">${escapeHtml(order.customerName)} • ${order.paymentMethod}</span>
+                        </div>
+                        <span class="text-xs font-bold text-emerald-600 dark:text-emerald-400">${formatRupiah(order.fare)}</span>
+                    </div>
+
+                    <div class="text-xs text-gray-600 dark:text-gray-300 space-y-2 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                        <span class="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wider block">Daftar Lokasi Perjalanan:</span>
+                        ${(order.waypoints || []).map((wp, idx) => `
+                            <div class="flex items-center justify-between bg-white dark:bg-slate-800 p-2 rounded-lg border border-gray-100 dark:border-slate-700 gap-2">
+                                <div>
+                                    <span class="font-bold ${idx === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'} text-[11px]">Titik ${idx + 1}: ${idx === 0 ? 'Penjemputan' : 'Tujuan'}</span>
+                                    <div class="text-[11px] text-gray-700 dark:text-gray-200 line-clamp-1">${escapeHtml(wp.name)}</div>
+                                </div>
+                                <a href="${getSingleWaypointNavUrl(wp.lat, wp.lng)}" target="_blank" class="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 hover:bg-blue-200 px-2.5 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap flex items-center gap-1 transition">
+                                    <i class="fa-solid fa-location-arrow"></i> Navigasi
+                                </a>
+                            </div>
+                        `).join('')}
+                        ${order.notes ? `<div class="italic text-[11px] text-amber-600 dark:text-amber-400 pt-1"><i class="fa-solid fa-note-sticky mr-1"></i> "${escapeHtml(order.notes)}"</div>` : ''}
+                    </div>
+
+                    <a href="${getGoogleMapsDirUrl(order.waypoints)}" target="_blank" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition">
+                        <i class="fa-solid fa-diamond-turn-right text-amber-300 text-sm"></i> Buka Navigasi Rute Lengkap (Google Maps)
+                    </a>
+
+                    <button onclick="openCancelModal('${order.id}')" class="w-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 hover:bg-rose-200 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-ban"></i> Batalkan Pesanan
+                    </button>
+
+                    <button onclick="openChat('${order.id}')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow transition">
+                        <i class="fa-solid fa-comments"></i> Buka Chat Koordinasi
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function renderDriverCompletedOrders() {
+            const list = document.getElementById('driverCompletedList');
+            const earningsBadge = document.getElementById('driverTotalEarningsBadge');
+            if (!list || !isDriverRole()) return;
+
+            const isMine = o => o.driverPhone === currentUser.phone || currentUser.accountType === 'admin';
+            const historyJobs = getStoredOrders().filter(o =>
+                (o.status === 'completed' || (o.status === 'cancelled' && o.driverPhone)) && isMine(o));
+
+            const totalIncome = historyJobs.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.fare || 0), 0);
+            if (earningsBadge) earningsBadge.innerText = `Total: ${formatRupiah(totalIncome)}`;
+
+            if (historyJobs.length === 0) { list.innerHTML = emptyBox('Belum ada riwayat pesanan.'); return; }
+
+            list.innerHTML = historyJobs.map(order => {
+                const cancelled = order.status === 'cancelled';
+                const hasCustomerRating = !!order.customerRating;
+                const custInfo = getUserRatingInfo(order.customerPhone || order.customerName);
+
+                return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border ${cancelled ? 'border-rose-200 dark:border-rose-900/60' : 'border-gray-200 dark:border-slate-700'} space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <strong class="text-xs text-slate-800 dark:text-slate-100 font-bold block">#${order.id} (${order.service.toUpperCase()})</strong>
+                            <span class="text-[10px] text-gray-400"><i class="fa-solid fa-user mr-1"></i>${escapeHtml(order.customerName)} (${escapeHtml(order.customerPhone)}) <span class="text-amber-500 font-bold">${custInfo.text}</span></span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-extrabold ${cancelled ? 'text-gray-400 line-through' : 'text-emerald-600 dark:text-emerald-400'} block">${formatRupiah(order.fare)}</span>
+                            <span class="inline-block mt-0.5">${getStatusBadge(order.status)}</span>
+                        </div>
+                    </div>
+
+                    <div class="text-xs text-gray-600 dark:text-gray-300 space-y-1 bg-gray-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-gray-100 dark:border-slate-700/50">
+                        ${waypointsListHtml(order, true)}
+                        <div class="text-[11px] text-gray-500 mt-1 border-t border-gray-200 dark:border-slate-700/60 pt-1 flex justify-between">
+                            <span><i class="fa-solid fa-wallet text-blue-500 mr-1"></i>${order.paymentMethod}</span>
+                            <span><i class="fa-solid fa-route text-amber-500 mr-1"></i>${order.distanceKm} Km</span>
+                        </div>
+                    </div>
+
+                    ${order.rating ? `
+                        <div class="text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/50">
+                            <i class="fa-solid fa-star text-amber-500 mr-1"></i><b>Rating dari Pelanggan:</b> ${order.rating}/5 ${order.review ? ` - "${escapeHtml(order.review)}"` : ''}
+                        </div>
+                    ` : ''}
+
+                    ${hasCustomerRating ? `
+                        <div class="text-xs bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/50">
+                            <i class="fa-solid fa-user-check text-emerald-500 mr-1"></i><b>Rating Anda untuk Pelanggan:</b> ${order.customerRating}/5 ${order.customerReview ? ` - "${escapeHtml(order.customerReview)}"` : ''}
+                        </div>
+                    ` : (!cancelled && order.status === 'completed' ? `
+                        <button onclick="openRatingModal('${order.id}', 'customer')" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                            <i class="fa-solid fa-star"></i> Beri Rating & Ulasan Pelanggan
+                        </button>
+                    ` : '')}
+
+                    ${renderCancelInfo(order)}
+
+                    <div class="text-[10px] text-gray-400 bg-slate-100 dark:bg-slate-900/80 p-2 rounded-xl flex items-center justify-between gap-1">
+                        <div class="truncate"><i class="fa-solid fa-calendar-plus mr-1 text-slate-500"></i><b>Masuk:</b> ${order.createdAt || 'N/A'}</div>
+                        <div class="truncate text-right">${cancelled
+                            ? `<i class="fa-solid fa-calendar-xmark mr-1 text-rose-500"></i><b>Batal:</b> ${order.cancelledAt || 'N/A'}`
+                            : `<i class="fa-solid fa-calendar-check mr-1 text-emerald-500"></i><b>Selesai:</b> ${order.completedAt || 'N/A'}`}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function openChat(orderId) {
+            activeChatOrderId = orderId;
+            const order = getStoredOrders().find(o => o.id === orderId);
+            if (!order) return;
+
+            document.getElementById('chatModal').classList.remove('hidden');
+            document.getElementById('chatOrderRef').innerText = `Order #${order.id}`;
+            document.getElementById('chatFare').innerText = formatRupiah(order.fare);
+            document.getElementById('chatPayType').innerText = order.paymentMethod;
+            document.getElementById('chatNotes').innerText = `Catatan: ${order.notes || '-'}`;
+
+            let partnerName, partnerPhone, partnerIcon, partnerRating;
+            if (currentUser.accountType === 'customer') {
+                partnerName = order.driverName || 'Menunggu Driver...';
+                partnerPhone = order.driverPhone || '';
+                partnerIcon = 'fa-motorcycle';
+                partnerRating = getUserRatingInfo(partnerPhone || partnerName);
+            } else {
+                partnerName = order.customerName || 'Pelanggan';
+                partnerPhone = order.customerPhone || '';
+                partnerIcon = 'fa-user';
+                partnerRating = getUserRatingInfo(partnerPhone || partnerName);
+            }
+            document.getElementById('chatPartnerName').innerHTML = `${escapeHtml(partnerName)} <span class="text-amber-400 font-bold text-xs ml-1">${partnerRating.text}</span>`;
+            document.getElementById('chatPartnerIcon').className = `fa-solid ${partnerIcon}`;
+
+            const completeBtn = document.getElementById('btnCompleteOrder');
+            completeBtn.classList.toggle('hidden', !(order.status === 'taken' && isDriverRole()));
+
+            document.getElementById('btnCancelOrder').classList.toggle('hidden', !canCancelOrder(order));
+            document.getElementById('chatInput').disabled = (order.status === 'cancelled');
+
+            const waBtn = document.getElementById('btnDirectWA');
+            if (partnerPhone) {
+                const msg = encodeURIComponent(`Halo, saya koordinasi mengenai pesanan Nadzar Raion ${order.id}`);
+                waBtn.href = `https://wa.me/${partnerPhone.replace(/^0/, '62')}?text=${msg}`;
+                waBtn.classList.remove('hidden');
+            } else {
+                waBtn.classList.add('hidden');
+            }
+
+            renderChatMessages();
+        }
+        window.openChat = openChat;
+
+        function closeChat() {
+            document.getElementById('chatModal').classList.add('hidden');
+            activeChatOrderId = null;
+        }
+        window.closeChat = closeChat;
+
+        function renderChatMessages() {
+            const container = document.getElementById('chatMessagesContainer');
+            if (!container || !activeChatOrderId) return;
+            container.innerHTML = '';
+
+            const order = getStoredOrders().find(o => o.id === activeChatOrderId);
+            if (!order) return;
+
+            order.chat.forEach(msg => {
+                if (msg.sender === 'system') {
+                    const sysDiv = document.createElement('div');
+                    sysDiv.className = "text-center my-2";
+                    sysDiv.innerHTML = `<span class="bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 text-[10px] px-3 py-1 rounded-full inline-block">${escapeHtml(msg.text)}</span>`;
+                    container.appendChild(sysDiv);
+                } else {
+                    const isMe = (currentUser.accountType === 'customer' && msg.sender === 'customer') ||
+                                 ((currentUser.accountType === 'driver' || currentUser.accountType === 'admin') && msg.sender === 'driver');
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = `flex ${isMe ? 'justify-end' : 'justify-start'}`;
+                    msgDiv.innerHTML = `
+                        <div class="max-w-[75%] p-3 rounded-2xl text-xs shadow-sm ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-slate-700'}">
+                            <p>${escapeHtml(msg.text)}</p>
+                            <span class="text-[9px] ${isMe ? 'text-brand-100' : 'text-gray-400'} block text-right mt-1">${msg.time}</span>
+                        </div>
+                    `;
+                    container.appendChild(msgDiv);
+                }
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text || !activeChatOrderId || !currentUser) return;
+
+            const orders = getStoredOrders();
+            const order = orders.find(o => o.id === activeChatOrderId);
+            if (!order || order.status === 'cancelled') return;
+
+            order.chat.push({ sender: currentUser.accountType, text: text, time: getCurrentTime() });
+            saveStoredOrders(orders);
+            input.value = '';
+            renderChatMessages();
+        }
+        window.sendMessage = sendMessage;
+
+        function sendQuickMessage(text) {
+            document.getElementById('chatInput').value = text;
+            sendMessage(new Event('submit'));
+        }
+        window.sendQuickMessage = sendQuickMessage;
+
+        function completeCurrentOrder() {
+            if (!activeChatOrderId) return;
+            const orders = getStoredOrders();
+            const order = orders.find(o => o.id === activeChatOrderId);
+            if (!order || order.status !== 'taken') return;
+
+            order.status = 'completed';
+            order.completedAt = getCurrentDateTime();
+            order.chat.push({ sender: 'system', text: 'Pesanan telah diselesaikan. Terima kasih!', time: getCurrentTime() });
+            saveStoredOrders(orders);
+            renderAllViews();
+            renderChatMessages();
+            document.getElementById('btnCompleteOrder').classList.add('hidden');
+            document.getElementById('btnCancelOrder').classList.add('hidden');
+            showToast('Pesanan telah berhasil diselesaikan!', 'success');
+
+            if (currentUser) {
+                const targetRole = (currentUser.accountType === 'customer') ? 'driver' : 'customer';
+                setTimeout(() => openRatingModal(order.id, targetRole), 500);
+            }
+        }
+        window.completeCurrentOrder = completeCurrentOrder;
+
+        function setRatingValue(val) {
+            document.getElementById('selectedStarValue').value = val;
+            const buttons = document.querySelectorAll('#starRatingContainer .star-btn');
+            buttons.forEach((btn, index) => {
+                if (index < val) {
+                    btn.className = 'star-btn text-amber-400 transition hover:scale-110';
+                } else {
+                    btn.className = 'star-btn text-gray-300 hover:text-amber-300 transition hover:scale-110';
+                }
+            });
+        }
+        window.setRatingValue = setRatingValue;
+
+        function openRatingModal(orderId, targetRole = 'driver') {
+            const order = getStoredOrders().find(o => o.id === orderId);
+            if (!order) return;
+            document.getElementById('ratingOrderId').value = orderId;
+            document.getElementById('ratingTargetRole').value = targetRole;
+
+            const isRatingDriver = (targetRole === 'driver');
+            const targetName = isRatingDriver ? (order.driverName || 'Driver') : (order.customerName || 'Pelanggan');
+
+            document.getElementById('ratingModalTitle').innerText = isRatingDriver ? 'Beri Rating & Ulasan Driver' : 'Beri Rating & Ulasan Pelanggan';
+            document.getElementById('ratingModalSubtext').innerText = `Berikan penilaian untuk: ${targetName}`;
+            document.getElementById('ratingReviewText').value = '';
+            setRatingValue(5);
+            document.getElementById('ratingModal').classList.remove('hidden');
+        }
+        window.openRatingModal = openRatingModal;
+
+        function closeRatingModal() {
+            document.getElementById('ratingModal').classList.add('hidden');
+        }
+        window.closeRatingModal = closeRatingModal;
+
+        function submitRatingOrder(e) {
+            e.preventDefault();
+            const orderId = document.getElementById('ratingOrderId').value;
+            const targetRole = document.getElementById('ratingTargetRole').value;
+            const ratingVal = parseInt(document.getElementById('selectedStarValue').value, 10) || 5;
+            const reviewText = document.getElementById('ratingReviewText').value.trim();
+
+            const orders = getStoredOrders();
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            const isRatingDriver = (targetRole === 'driver');
+
+            if (isRatingDriver) {
+                order.rating = ratingVal;
+                order.review = reviewText;
+                order.ratedAt = getCurrentDateTime();
+            } else {
+                order.customerRating = ratingVal;
+                order.customerReview = reviewText;
+                order.customerRatedAt = getCurrentDateTime();
+            }
+
+            const users = getRegisteredUsers();
+            const targetPhone = isRatingDriver ? order.driverPhone : order.customerPhone;
+            const targetName = isRatingDriver ? order.driverName : order.customerName;
+
+            const targetUser = users.find(u => 
+                (targetPhone && u.phone === targetPhone) || 
+                (targetName && targetName.includes(u.name))
+            );
+
+            if (targetUser) {
+                targetUser.reviews = targetUser.reviews || [];
+                targetUser.reviews.push({
+                    orderId: order.id,
+                    raterName: currentUser ? currentUser.name : 'User',
+                    rating: ratingVal,
+                    review: reviewText,
+                    date: getCurrentDateTime()
+                });
+
+                const sum = targetUser.reviews.reduce((acc, r) => acc + (r.rating || 5), 0);
+                targetUser.ratingCount = targetUser.reviews.length;
+                targetUser.ratingAvg = (sum / targetUser.ratingCount).toFixed(1);
+                saveRegisteredUsers(users);
+            }
+
+            saveStoredOrders(orders);
+            closeRatingModal();
+            checkAuth();
+            renderAllViews();
+            showToast(`Terima kasih! Ulasan bintang ${ratingVal} telah dikirim untuk ${isRatingDriver ? 'driver' : 'pelanggan'}.`, 'success');
+        }
+        window.submitRatingOrder = submitRatingOrder;
+
+        function renderAllViews() {
+            renderCustomerOrders();
+            renderDriverFeed();
+            renderDriverActiveOrders();
+            renderDriverCompletedOrders();
+            updateDriverMapVisuals();
+        }
+
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'nadzar_raion_orders' || e.key === 'nadzar_registered_users') {
+                checkAuth();
+                renderAllViews();
+                if (activeChatOrderId) renderChatMessages();
+            }
+        });
+        window.addEventListener('nadzar_storage_update', () => {
+            renderAllViews();
+            if (activeChatOrderId) renderChatMessages();
+        });
+
+        window.onload = function () {
+            getRegisteredUsers();
+            initMaps();
+            renderWaypointsUI();
+            calculateFare();
+            checkAuth();
+        };
+    </script>
+</body>
+</html>
